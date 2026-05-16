@@ -1,0 +1,34 @@
+# Build output
+build/
+out/
+*.exe
+*.lib
+*.dll
+*.pdb
+*.ilk
+*.obj
+*.exp
+
+# IDE
+.vs/
+.vscode/
+*.user
+*.suo
+*.sln.DotSettings.user
+
+# vcpkg
+vcpkg_installed/
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Dependencies
+vendor/
+
+# Distribution
+dist-*/
+
+# Temp
+*.tmp
+*.log

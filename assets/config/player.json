@@ -1,0 +1,18 @@
+{
+  "moveSpeed": 7.0,
+  "turnSpeed": 2.0,
+  "baseHealth": 20,
+
+  "feedback": {
+    "hurtDuration": 0.3,
+    "shakeDuration": 0.15,
+    "muzzleFlashDuration": 0.05,
+    "bobbingSpeed": 8.0,
+    "bobbingAmplitude": 1.5
+  },
+
+  "look": {
+    "sensitivity": 0.03,
+    "maxOffset": 30.0
+  }
+}

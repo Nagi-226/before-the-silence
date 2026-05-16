@@ -1,0 +1,20 @@
+{
+  "amounts": {
+    "ammoPickup": 10,
+    "healAmount": 1
+  },
+
+  "upgrades": {
+    "cost": 10,
+    "healthUpgrade": 5,
+    "ammoClipUpgrade": 5,
+    "ammoReserveUpgrade": 10,
+    "fireRateUpgrade": 2.0,
+    "fireRateCap": 20.0
+  },
+
+  "collision": {
+    "pickupRadius": 1.0,
+    "projectileRadius": 0.5
+  }
+}

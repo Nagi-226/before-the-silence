@@ -1,0 +1,38 @@
+{
+  "templates": [
+    {
+      "textureFile": "Alien Small.bmp",
+      "health": 1,
+      "detectionRange": 8.0,
+      "attackRange": 2.0,
+      "moveSpeed": 2.5,
+      "canDropPickup": false
+    },
+    {
+      "textureFile": "Alien Medium.bmp",
+      "health": 3,
+      "detectionRange": 8.0,
+      "attackRange": 2.0,
+      "moveSpeed": 2.5,
+      "canDropPickup": true
+    },
+    {
+      "textureFile": "Alien Large.bmp",
+      "health": 6,
+      "detectionRange": 8.0,
+      "attackRange": 2.0,
+      "moveSpeed": 2.5,
+      "canDropPickup": true
+    }
+  ],
+
+  "animation": {
+    "frameCount": 4,
+    "frameDuration": 0.25,
+    "frameWidth": 32
+  },
+
+  "feedback": {
+    "hurtFlashTime": 0.2
+  }
+}
