@@ -3,7 +3,8 @@ extends Node
 ## 路径绑定: project.godot [autoload]
 
 var player_cfg := {}
-var weapon_cfg := {}
+var weapons_cfg := []
+var weapons_shared_reserve := 90
 var enemy_weapon_cfg := []
 var enemies_cfg := {}
 var pickups_cfg := {}
@@ -27,7 +28,8 @@ const SFX_NAMES := [
 func _ready() -> void:
 	player_cfg = _load_json(CFG_DIR + "player.json")
 	var weapons := _load_json(CFG_DIR + "weapons.json")
-	weapon_cfg = weapons.get("player", {})
+	weapons_cfg = weapons.get("weapons", [])
+	weapons_shared_reserve = int(weapons.get("sharedReserve", 90))
 	enemy_weapon_cfg = weapons.get("enemyTemplates", [])
 	enemies_cfg = _load_json(CFG_DIR + "enemies.json")
 	pickups_cfg = _load_json(CFG_DIR + "pickups.json")
@@ -117,6 +119,8 @@ func _register_actions() -> void:
 		"move_left": KEY_A,
 		"move_right": KEY_D,
 		"reload": KEY_R,
+		"weapon_1": KEY_1,
+		"weapon_2": KEY_2,
 	}
 	for action in key_actions:
 		if not InputMap.has_action(action):

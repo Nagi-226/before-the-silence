@@ -14,6 +14,7 @@ var _entities: Node
 var _enemy_target: Node
 var _enemy_hp_before := 0
 var _ammo_before := 0
+var _weapon_test_done := false
 
 
 func _ready() -> void:
@@ -29,6 +30,8 @@ func _process(_delta: float) -> void:
 	match _frame:
 		2: _main.dismiss_briefing()
 		5: _check_world_built()
+		6: _test_weapon_switch()
+		7: _check_weapons_cfg()
 		10: _setup_pickup()
 		45: _check_pickup()
 		50: _setup_shoot()
@@ -53,6 +56,50 @@ func _check_world_built() -> void:
 			pickup_count += 1
 	_report(pickup_count >= 20, "拾取物数量: %d (期望 >= 20)" % pickup_count)
 	_report(get_tree().get_first_node_in_group("player") != null, "玩家节点就绪")
+
+
+func _key_down(key: int) -> void:
+	var down := InputEventKey.new()
+	down.physical_keycode = key
+	down.keycode = key
+	down.pressed = true
+	Input.parse_input_event(down)
+
+
+func _key_up(key: int) -> void:
+	var up := InputEventKey.new()
+	up.physical_keycode = key
+	up.keycode = key
+	up.pressed = false
+	Input.parse_input_event(up)
+
+
+## 按住式注入 + 物理帧等待: headless 渲染帧远快于物理步进，
+## down/up 同一冲刷周期内注入会让物理帧观察不到按下状态
+func _test_weapon_switch() -> void:
+	_key_down(KEY_2)
+	await get_tree().physics_frame
+	await get_tree().physics_frame
+	_report(_player.weapon_index == 1, "按 2 切换到冲锋枪 (index=%d)" % _player.weapon_index)
+	_key_up(KEY_2)
+	_key_down(KEY_1)
+	await get_tree().physics_frame
+	await get_tree().physics_frame
+	_report(_player.weapon_index == 0, "按 1 切回手枪 (index=%d)" % _player.weapon_index)
+	_key_up(KEY_1)
+	_weapon_test_done = true
+
+
+func _check_weapons_cfg() -> void:
+	_report(_player.weapons.size() == 2, "双武器配置: %d 把 (期望 2)" % _player.weapons.size())
+	if _player.weapons.size() == 2:
+		var pistol: Dictionary = _player.weapons[0]
+		var smg: Dictionary = _player.weapons[1]
+		_report(pistol["auto"] == false and int(pistol["clipSize"]) == 20,
+			"手枪: 半自动 弹匣 %d (期望 20)" % int(pistol["clipSize"]))
+		_report(smg["auto"] == true and str(smg["displayName"]) == "冲锋枪",
+			"冲锋枪: 全自动就绪")
+	_report(_player.health_max == 100, "玩家血量上限: %d (期望 100)" % _player.health_max)
 
 
 func _setup_pickup() -> void:
@@ -107,11 +154,13 @@ func _path_clear(from: Vector3, dir: Vector3, dist: float) -> bool:
 func _check_shoot() -> void:
 	if _enemy_target == null:
 		return
+	var dmg: int = int(_player.weapons[_player.weapon_index]["damage"])
 	if not is_instance_valid(_enemy_target):
 		_report(true, "子弹击杀敌人")
 	else:
 		var hp: int = _enemy_target.health
-		_report(hp == _enemy_hp_before - 1, "子弹命中敌人: HP %d -> %d" % [_enemy_hp_before, hp])
+		_report(hp == _enemy_hp_before - dmg,
+			"子弹命中敌人: HP %d -> %d (伤害 %d)" % [_enemy_hp_before, hp, dmg])
 	_report(_player.ammo_clip == _ammo_before - 1,
 		"弹药消耗: %d -> %d" % [_ammo_before, _player.ammo_clip])
 
@@ -130,5 +179,7 @@ func _check_flag() -> void:
 
 
 func _finish() -> void:
+	while not _weapon_test_done:
+		await get_tree().physics_frame
 	print("[SMOKE] 结果: %s" % ("全部通过" if not _fail else "存在失败项"))
 	get_tree().quit(1 if _fail else 0)

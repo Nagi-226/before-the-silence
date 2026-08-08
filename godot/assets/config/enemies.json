@@ -2,7 +2,7 @@
   "templates": [
     {
       "textureFile": "Alien Small.bmp",
-      "health": 1,
+      "health": 80,
       "detectionRange": 8.0,
       "attackRange": 2.0,
       "moveSpeed": 2.5,
@@ -10,7 +10,7 @@
     },
     {
       "textureFile": "Alien Medium.bmp",
-      "health": 3,
+      "health": 100,
       "detectionRange": 8.0,
       "attackRange": 2.0,
       "moveSpeed": 2.5,
@@ -18,7 +18,7 @@
     },
     {
       "textureFile": "Alien Large.bmp",
-      "health": 6,
+      "health": 300,
       "detectionRange": 8.0,
       "attackRange": 2.0,
       "moveSpeed": 2.5,
@@ -33,6 +33,7 @@
   },
 
   "feedback": {
-    "hurtFlashTime": 0.2
+    "hurtFlashTime": 0.2,
+    "attackPoseTime": 0.18
   }
 }

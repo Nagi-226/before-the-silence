@@ -50,6 +50,7 @@ func _connect_player() -> void:
 	player.ammo_changed.connect(hud.update_ammo)
 	player.health_changed.connect(hud.update_health)
 	player.coins_changed.connect(hud.update_coins)
+	player.weapon_changed.connect(hud.update_weapon)
 	player.hurt.connect(func():
 		hud.show_hurt()
 		GameData.play_sfx("PlayerHurt"))
@@ -57,6 +58,11 @@ func _connect_player() -> void:
 	player.fired.connect(func(): GameData.play_sfx("Shoot"))
 	player.reload_started.connect(func(): GameData.play_sfx("ReloadStart"))
 	player.reload_finished.connect(func(): GameData.play_sfx("ReloadEnd"))
+	# Player._ready 先于本函数执行，初始信号已丢失——主动同步一次 HUD
+	hud.update_weapon(player.weapon_display_name(), player.weapon_viewmodel())
+	hud.update_ammo(player.ammo_clip, player.ammo_reserve)
+	hud.update_health(player.health_cur, player.health_max)
+	hud.update_coins(player.coins)
 
 
 func _connect_entities() -> void:

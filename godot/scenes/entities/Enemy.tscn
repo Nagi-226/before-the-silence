@@ -25,4 +25,8 @@ texture = ExtResource("2_enemy")
 [node name="FlashTimer" type="Timer" parent="."]
 one_shot = true
 
+[node name="AttackTimer" type="Timer" parent="."]
+one_shot = true
+
 [connection signal="timeout" from="FlashTimer" to="." method="_on_flash_timer_timeout"]
+[connection signal="timeout" from="AttackTimer" to="." method="_on_attack_timer_timeout"]

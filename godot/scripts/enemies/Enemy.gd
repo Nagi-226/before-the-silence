@@ -12,6 +12,7 @@ const PIXEL_SIZES := [0.045, 0.0575, 0.075]  # 小/中/大 体型 (32px 精灵, 
 
 @onready var sprite: Sprite3D = $Sprite3D
 @onready var flash_timer: Timer = $FlashTimer
+@onready var attack_timer: Timer = $AttackTimer
 
 var template_id := 0
 var projectile_root: Node
@@ -27,6 +28,9 @@ var bullet_speed := 16.0
 var _fire_cooldown := 0.0
 var _gravity: float = ProjectSettings.get_setting("physics/3d/default_gravity", 9.8)
 var _base_modulate := Color.WHITE
+var _idle_texture: Texture2D
+var _attack_texture: Texture2D  # 持武器开火帧，缺失时保持常态贴图（优雅降级）
+var _sprite_base_pos := Vector3(0, 0.9, 0)
 
 
 func _ready() -> void:
@@ -46,8 +50,13 @@ func _ready() -> void:
 	var tex_path := "res://assets/sprites/" + tex_file.get_basename() + ".png"
 	if ResourceLoader.exists(tex_path):
 		sprite.texture = load(tex_path)
+	_idle_texture = sprite.texture
+	var attack_path := "res://assets/sprites/" + tex_file.get_basename() + " Attack.png"
+	if ResourceLoader.exists(attack_path):
+		_attack_texture = load(attack_path)
 	sprite.pixel_size = PIXEL_SIZES[clampi(template_id, 0, 2)]
 	_base_modulate = sprite.modulate
+	_sprite_base_pos = sprite.position
 
 	if template_id < GameData.enemy_weapon_cfg.size():
 		var w: Dictionary = GameData.enemy_weapon_cfg[template_id]
@@ -85,6 +94,7 @@ func _physics_process(delta: float) -> void:
 
 func _shoot_at(player: Node3D) -> void:
 	fired.emit()
+	_enter_attack_pose()
 	var proj: Node3D = ProjectileScene.instantiate()
 	proj.from_player = false
 	proj.damage = fire_damage
@@ -96,6 +106,21 @@ func _shoot_at(player: Node3D) -> void:
 	proj.global_position = muzzle
 	var target: Vector3 = player.global_position + Vector3(0, 0.65, 0)
 	proj.direction = (target - muzzle).normalized()
+
+
+## DOOM 式攻击帧: 开火瞬间换持武器贴图并后座，短暂停顿后还原
+func _enter_attack_pose() -> void:
+	if _attack_texture:
+		sprite.texture = _attack_texture
+	sprite.position = _sprite_base_pos + Vector3(0.0, -0.04, 0.0)
+	var pose_time := float(GameData.enemies_cfg.get("feedback", {}).get("attackPoseTime", 0.18))
+	attack_timer.start(pose_time)
+
+
+func _on_attack_timer_timeout() -> void:
+	if _idle_texture:
+		sprite.texture = _idle_texture
+	sprite.position = _sprite_base_pos
 
 
 func take_damage(amount: int) -> void:

@@ -1,7 +1,7 @@
 {
   "moveSpeed": 7.0,
   "turnSpeed": 2.0,
-  "baseHealth": 20,
+  "baseHealth": 100,
 
   "feedback": {
     "hurtDuration": 0.3,

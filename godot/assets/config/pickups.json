@@ -1,12 +1,12 @@
 {
   "amounts": {
     "ammoPickup": 10,
-    "healAmount": 1
+    "healAmount": 25
   },
 
   "upgrades": {
     "cost": 10,
-    "healthUpgrade": 5,
+    "healthUpgrade": 20,
     "ammoClipUpgrade": 5,
     "ammoReserveUpgrade": 10,
     "fireRateUpgrade": 2.0,

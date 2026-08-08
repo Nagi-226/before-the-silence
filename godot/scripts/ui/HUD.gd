@@ -8,10 +8,13 @@ extends CanvasLayer
 @onready var health_label: Label = $HealthLabel
 @onready var coin_label: Label = $CoinLabel
 @onready var hurt_rect: ColorRect = $HurtRect
+@onready var weapon_rect: TextureRect = $WeaponRect
 @onready var end_panel: PanelContainer = $EndPanel
 @onready var end_title: Label = $EndPanel/VBox/TitleLabel
 @onready var end_hint: Label = $EndPanel/VBox/HintLabel
 @onready var end_vbox: VBoxContainer = $EndPanel/VBox
+
+var _weapon_name := "手枪"
 
 var _briefing_root: Control
 var _briefing_blink: Tween
@@ -65,7 +68,14 @@ func _build_narrative_ui() -> void:
 
 
 func update_ammo(clip: int, reserve: int) -> void:
-	ammo_label.text = "弹药  %d / %d" % [clip, reserve]
+	ammo_label.text = "%s  弹药  %d / %d" % [_weapon_name, clip, reserve]
+
+
+func update_weapon(weapon_name: String, viewmodel: String) -> void:
+	_weapon_name = weapon_name
+	var path := "res://assets/images/" + viewmodel
+	if ResourceLoader.exists(path):
+		weapon_rect.texture = load(path)
 
 
 func update_health(current: int, max_hp: int) -> void:

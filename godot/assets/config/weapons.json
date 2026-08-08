@@ -1,29 +1,50 @@
 {
-  "player": {
-    "ammoClip": 30,
-    "ammoReserve": 90,
-    "clipSize": 30,
-    "fireRate": 10.0,
-    "damage": 1,
-    "bulletSpeed": 15.0,
-    "bulletRange": 10.0,
-    "reloadTime": 2.0,
-    "spawnOffset": 0.5
-  },
+  "weapons": [
+    {
+      "id": "pistol",
+      "displayName": "手枪",
+      "auto": false,
+      "ammoClip": 20,
+      "clipSize": 20,
+      "fireRate": 10.0,
+      "damage": 32,
+      "bulletSpeed": 15.0,
+      "bulletRange": 10.0,
+      "reloadTime": 2.0,
+      "spawnOffset": 0.5,
+      "viewmodel": "Weapon.png"
+    },
+    {
+      "id": "smg",
+      "displayName": "冲锋枪",
+      "auto": true,
+      "ammoClip": 30,
+      "clipSize": 30,
+      "fireRate": 10.0,
+      "damage": 32,
+      "bulletSpeed": 15.0,
+      "bulletRange": 10.0,
+      "reloadTime": 2.0,
+      "spawnOffset": 0.5,
+      "viewmodel": "WeaponSMG.png"
+    }
+  ],
+
+  "sharedReserve": 90,
 
   "enemyTemplates": [
     {
-      "damage": 1,
+      "damage": 5,
       "fireRate": 10.0,
       "bulletSpeed": 8.0
     },
     {
-      "damage": 2,
+      "damage": 10,
       "fireRate": 8.0,
       "bulletSpeed": 12.0
     },
     {
-      "damage": 4,
+      "damage": 20,
       "fireRate": 6.0,
       "bulletSpeed": 10.0
     }
