@@ -3,7 +3,7 @@
 > **本文件用途**：AI Agent 集群交接的唯一进度入口。任何 agent 接手前先读本文件，即可对齐项目定位、当前进度与下一步工作。
 > **更新约定**：每完成一个开发里程碑（功能/重构/修复批次）后，在「最新进展」顶部追加一条，并同步刷新「当前状态快照」与「待办」。
 
-**最后更新**: 2026-08-08 · 最新提交 `399b3ae` · 分支 `master`（跟踪 `origin/master` @ https://github.com/Nagi-226/Signal_Lost）
+**最后更新**: 2026-08-08 · 最新提交 `9b4acf4` · 分支 `master`（跟踪 `origin/master` @ https://github.com/Nagi-226/Signal_Lost）
 
 ---
 
@@ -21,7 +21,7 @@ Signal Lost 是复古 DOOM 风 FPS：2057 年侦察兵深入远东废墟感染�
 | 维度 | 状态 |
 | --- | --- |
 | 活跃开发线 | Godot 重制版（`godot/`） |
-| 最新提交 | `399b3ae` README + 项目更名 Signal Lost |
+| 最新提交 | `9b4acf4` STATUS.md 进度追踪体系 + README + 项目更名 Signal Lost |
 | 游戏完成度 | 双地图可完整通关（找信标撤离），菜单/简报/HUD/音效齐备 |
 | 武器系统 | 手枪（半自动 20 发，初始持有）+ 冲锋枪（全自动 30 发，场景拾取获得） |
 | 切换绑定 | Q / 鼠标滚轮循环切换（事件驱动，经 `Main._unhandled_input`） |
@@ -30,7 +30,7 @@ Signal Lost 是复古 DOOM 风 FPS：2057 年侦察兵深入远东废墟感染�
 
 ## 最新进展（新 → 旧）
 
-- **2026-08-08** `399b3ae` — 新增 README（门面文档）；项目更名 Signal Lost（原 Retro FPS），身份层同步（窗口标题/横幅/文档标题）；仓库首次推送 GitHub
+- **2026-08-08** `9b4acf4` — 新增 STATUS.md 进度追踪体系（本文件），CLAUDE.md / README.md 加入口指引；此前 `399b3ae` 新增 README（门面文档）、项目更名 Signal Lost（原 Retro FPS），仓库首次推送 GitHub
 - **2026-08-08** `47ac39a` — **Phase 3：冲锋枪场景拾取 + Q/滚轮切换**。owned 持有模型（初始仅手枪）；`pickupSpawns` 配置生成 W 拾取物（map0 @ (20,35) / map1 @ (14,10)，不动 C++ 同源地图）；`grant_weapon` 首拾补满弹匣+自动切换，重复拾取转 30 备弹；移除 1/2 键；拾取精灵 48×41 金色光晕版；SmokeTest 扩至 24 断言
 - **2026-08-08** `aa6ce5d` — 双击启动器 `启动Godot版.bat`（自动定位 WinGet 安装的 Godot 真实 exe）
 - **2026-08** `5c3b3ce` — **Phase 2：双武器系统 + 数值重构 + 敌人攻击帧**。手枪半自动/冲锋枪全自动；血量 100→升级 120，敌血 80/100/300，伤害 32，敌伤×5；敌人开火切持枪攻击贴图
