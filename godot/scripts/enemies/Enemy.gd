@@ -8,7 +8,7 @@ signal fired
 
 const ProjectileScene := preload("res://scenes/weapons/Projectile.tscn")
 
-const PIXEL_SIZES := [0.09, 0.115, 0.15]  # 小/中/大 体型
+const PIXEL_SIZES := [0.045, 0.0575, 0.075]  # 小/中/大 体型 (32px 精灵, 值=米/像素)
 
 @onready var sprite: Sprite3D = $Sprite3D
 @onready var flash_timer: Timer = $FlashTimer

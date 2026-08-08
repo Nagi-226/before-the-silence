@@ -19,5 +19,5 @@ shape = SubResource("SphereShape3D_pickup")
 transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 0.9, 0)
 billboard = 2
 texture_filter = 0
-pixel_size = 0.08
+pixel_size = 0.04
 texture = ExtResource("2_pickup")
