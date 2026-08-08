@@ -31,6 +31,7 @@ ctest -C Debug --output-on-failure
 
 | 类型 | 路径 | 说明 |
 |------|------|------|
+| **进度追踪** | `STATUS.md` | **实时开发进度与交接入口（接手前先读，每里程碑更新）** |
 | 入口文档 | `PROJECT.md` | 全量项目上下文（架构/标准/路线图/构建） |
 | Agent 定义 | `.claude/agents/` | 10 个专用 Agent |
 | 编码规则 | `.claude/rules/` | engine-code / gameplay-code / ui-code |
