@@ -209,6 +209,7 @@ func _on_defeat() -> void:
 
 func _stats_text() -> String:
 	var secs := int((Time.get_ticks_msec() - _start_msec) / 1000.0) if _start_msec > 0 else 0
+	@warning_ignore("integer_division")
 	return "击杀 %d · 拾取 %d · 用时 %02d:%02d" % [_kills, _pickups_taken, secs / 60, secs % 60]
 
 
