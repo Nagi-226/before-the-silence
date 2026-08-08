@@ -37,8 +37,8 @@ TEST(Level, SetupEntitiesCreatesPickups) {
     std::vector<std::unique_ptr<Pickup>> pickups;
     Vector2D start, finish;
     Level::setupEntities(enemies, pickups, start, finish);
-    EXPECT_GT(pickups.size(), 1000u);
-    EXPECT_LT(pickups.size(), 2000u);
+    EXPECT_GT(pickups.size(), 200u);
+    EXPECT_LT(pickups.size(), 600u);
 }
 
 TEST(Level, SetupEntitiesStartNotZero) {

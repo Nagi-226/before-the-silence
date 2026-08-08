@@ -19,8 +19,8 @@ void MovementSystem::updatePlayer(Player& player, const Input& input, float dT) 
     player.transform.angle += player.turnAmount * m_config.turnSpeed;
     player.transform.angle = MathAddon::wrapAngleRad(player.transform.angle);
 
-    // Y-shearing 上下视角
-    player.lookOffset += input.getMouseDeltaY() * m_config.lookSensitivity;
+    // 上下视角（鼠标上推 = 往上看，下推 = 往下看，负号修正 SDL Y 轴反转）
+    player.lookOffset -= input.getMouseDeltaY() * m_config.lookSensitivity;
     player.lookOffset = MathAddon::clamp(player.lookOffset,
         -m_config.maxLookOffset, m_config.maxLookOffset);
 

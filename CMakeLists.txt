@@ -1,5 +1,5 @@
 cmake_minimum_required(VERSION 3.20)
-project(RetroFPS VERSION 0.4.0 LANGUAGES CXX)
+project(RetroFPS VERSION 0.6.0 LANGUAGES CXX)
 
 # C++17, no compiler extensions, UTF-8 source encoding
 set(CMAKE_CXX_STANDARD 17)
@@ -76,9 +76,19 @@ if(BUILD_TESTS AND SDL2_AVAILABLE)
 endif()
 
 # === Engine Layer (depends on Math Layer + SDL2; builds when SDL2 found) ===
-find_package(SDL2 QUIET)
-find_package(SDL2_mixer QUIET)
-find_package(SDL2_ttf QUIET)
+# Prefer CONFIG mode for vcpkg integration; fall back to custom Find modules
+find_package(SDL2 CONFIG QUIET)
+if(NOT SDL2_FOUND)
+    find_package(SDL2 MODULE QUIET)
+endif()
+find_package(SDL2_mixer CONFIG QUIET)
+if(NOT SDL2_mixer_FOUND)
+    find_package(SDL2_mixer MODULE QUIET)
+endif()
+find_package(SDL2_ttf CONFIG QUIET)
+if(NOT SDL2_ttf_FOUND)
+    find_package(SDL2_ttf MODULE QUIET)
+endif()
 
 if(TARGET SDL2::SDL2 AND TARGET SDL2_mixer::SDL2_mixer AND TARGET SDL2_ttf::SDL2_ttf)
     set(SDL2_AVAILABLE TRUE)
@@ -103,6 +113,16 @@ if(SDL2_AVAILABLE)
     target_include_directories(retrofps_engine PUBLIC src)
     if(EXISTS "${CMAKE_BINARY_DIR}/vcpkg_installed/x64-windows/include")
         target_include_directories(retrofps_engine SYSTEM PUBLIC "${CMAKE_BINARY_DIR}/vcpkg_installed/x64-windows/include")
+    endif()
+    # Add vendor SDL2 include dirs for "#include <SDL2/SDL.h>" resolution
+    if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/vendor/SDL2-2.30.3/include")
+        target_include_directories(retrofps_engine SYSTEM PUBLIC "${CMAKE_CURRENT_SOURCE_DIR}/vendor/SDL2-2.30.3/include")
+    endif()
+    if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/vendor/SDL2_mixer-2.8.0/include")
+        target_include_directories(retrofps_engine SYSTEM PUBLIC "${CMAKE_CURRENT_SOURCE_DIR}/vendor/SDL2_mixer-2.8.0/include")
+    endif()
+    if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/vendor/SDL2_ttf-2.22.0/include")
+        target_include_directories(retrofps_engine SYSTEM PUBLIC "${CMAKE_CURRENT_SOURCE_DIR}/vendor/SDL2_ttf-2.22.0/include")
     endif()
     target_compile_features(retrofps_engine PUBLIC cxx_std_17)
 
@@ -136,17 +156,29 @@ if(SDL2_AVAILABLE)
     )
     target_include_directories(RetroFPS PRIVATE src)
 
-    # Copy assets next to executable on Windows
+    # v0.6.0 修复: Release 模式下也显示控制台窗口以便查看错误信息
+    set_target_properties(RetroFPS PROPERTIES
+        WIN32_EXECUTABLE FALSE
+    )
+
+    # Copy assets + DLLs + launch script next to executable
     if(WIN32)
         add_custom_command(TARGET RetroFPS POST_BUILD
             COMMAND ${CMAKE_COMMAND} -E copy_directory
                 "${CMAKE_CURRENT_SOURCE_DIR}/assets"
                 "$<TARGET_FILE_DIR:RetroFPS>/assets"
+            COMMAND ${CMAKE_COMMAND} -E copy_if_different
+                $<TARGET_RUNTIME_DLLS:RetroFPS>
+                $<TARGET_FILE_DIR:RetroFPS>
+            COMMAND ${CMAKE_COMMAND} -E copy_if_different
+                "${CMAKE_CURRENT_SOURCE_DIR}/启动游戏.bat"
+                "$<TARGET_FILE_DIR:RetroFPS>/启动游戏.bat"
+            COMMAND_EXPAND_LISTS
         )
     endif()
 else()
     message(WARNING "SDL2 not found — engine layer + game executable will not be built.")
-    message(STATUS "  Math/Level layer + unit tests are fully functional (127/127 passing).")
+    message(STATUS "  Math/Level layer + unit tests are fully functional.")
     message(STATUS "  Install SDL2 devel libraries and re-run CMake:")
     message(STATUS "    E:\\vcpkg\\vcpkg.exe install sdl2 sdl2-mixer sdl2-ttf --triplet x64-windows")
     message(STATUS "  Then: delete build/ and reconfigure.")

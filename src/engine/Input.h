@@ -1,47 +1,36 @@
 #pragma once
 #include "SDL2/SDL.h"
 
-/// 键盘 + 鼠标输入抽象。
-/// 每帧调用 update() 刷新状态，然后通过查询方法获取输入。
+/// 键盘 + 鼠标输入抽象 — v0.6.3 恢复 SDL_GetKeyboardState 轮询。
+/// 原始 src-legacy 代码证明此方式在 Windows 下最可靠，
+/// 不依赖 SDL_KEYDOWN/KEYUP 事件队列时序。
 class Input
 {
 public:
     Input();
 
-    /// 每帧开始时调用，刷新键盘和鼠标状态
+    /// 每帧开始时调用，刷新键盘/鼠标状态
     void update();
 
     // —— 键盘查询 ——
-    /// 按键是否当前被按住
     bool isKeyHeld(SDL_Scancode key) const;
-    /// 按键是否在本帧刚被按下（上升沿）
     bool isKeyPressed(SDL_Scancode key) const;
-    /// 按键是否在本帧刚被释放（下降沿）
     bool isKeyReleased(SDL_Scancode key) const;
 
     // —— 鼠标查询 ——
-    /// 鼠标左键是否当前被按住
     bool isMouseHeld(Uint8 button = SDL_BUTTON_LEFT) const;
-    /// 鼠标按键是否在本帧刚被按下
     bool isMousePressed(Uint8 button = SDL_BUTTON_LEFT) const;
-    /// 鼠标 X 轴本帧相对位移（像素）
     int getMouseDeltaX() const { return m_mouseDeltaX; }
-    /// 鼠标 Y 轴本帧相对位移（像素）
     int getMouseDeltaY() const { return m_mouseDeltaY; }
 
     // —— 退出 ——
-    /// 是否请求退出（ESC 或窗口关闭）
     bool shouldQuit() const { return m_shouldQuit; }
-
-    // —— 窗口事件 ——
-    /// F11 是否在本帧被按下（用于全屏切换）
     bool isFullscreenToggled() const;
 
 private:
-    // 键盘状态：当前帧 vs 上一帧
+    // v0.6.3: SDL_GetKeyboardState 轮询（每帧从 SDL 内部状态同步）
     Uint8 m_keyState[SDL_NUM_SCANCODES] = {};
     Uint8 m_keyPrev[SDL_NUM_SCANCODES] = {};
-    int m_numKeys = 0;
 
     // 鼠标
     int m_mouseDeltaX = 0;

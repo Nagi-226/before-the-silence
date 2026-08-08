@@ -1,27 +1,26 @@
 #pragma once
 #include <vector>
 #include <memory>
+#include <string>
 #include "math/Vector2D.h"
 
 class Enemy;
 class Pickup;
 
-/// 墙壁材质类型
 enum class WallMaterial : int {
-    Brick = 0,     // X — 砖墙（默认）
-    Metal = 1,     // M — 金属板
-    Stone = 2,     // S — 石墙
-    Grate = 3,     // G — 铁栅栏（半透明）
-    COUNT = 4
+    Brick = 0, Metal = 1, Stone = 2, Grate = 3, COUNT = 4
 };
 
-/// 关卡数据 — 168×68 符号地图。
-/// 提供墙壁碰撞检测 + 材质查询 + 实体生成 + 光源查询。
+/// 关卡难度预设
+enum class Difficulty : int { Easy = 0, Normal = 1, Hard = 2 };
+
+/// 关卡数据 — 支持多地图 + 难度切换。
 class Level
 {
 public:
     static constexpr int WIDTH = 168;
     static constexpr int HEIGHT = 68;
+    static constexpr int MAP_COUNT = 2;  // v0.5.1 双地图
 
     // —— 符号定义 ——
     static constexpr char SYMBOL_WALL = 'X';
@@ -40,41 +39,50 @@ public:
     static constexpr char SYMBOL_ENEMY_MEDIUM = '1';
     static constexpr char SYMBOL_ENEMY_LARGE = '2';
 
+    // —— v0.5.1 地图切换 ——
+    static void loadMap(int index);
+    static int  currentMap() { return s_currentMap; }
+    static bool hasNextMap() { return s_currentMap + 1 < MAP_COUNT; }
+
     // —— 碰撞检测 ——
     static bool isWall(int x, int y);
     static bool isWalkable(int x, int y) { return !isWall(x, y); }
     static void moveWithWallSlide(float& posX, float& posY, float dx, float dy);
 
-    // —— v0.3.2 墙壁材质 ——
     static WallMaterial getWallMaterial(int x, int y);
-    /// 材质是否为实心（铁栅栏是半透明的）
     static bool isSolidMaterial(WallMaterial m) { return m != WallMaterial::Grate; }
 
-    // —— v0.3.5 光源 ——
+    static float getFloorHeight(int x, int y);
+    static float getCeilingHeight(int x, int y);
+
     struct LightSource {
-        int x, y;              // 光源位置（格子坐标）
-        float radius;          // 光照半径（格子数）
-        float intensity;       // 基础强度 [0, 1]
-        unsigned char r, g, b; // 光源颜色 [0, 255]
+        int x, y; float radius; float intensity;
+        unsigned char r, g, b;
     };
-    /// 查询影响指定格子的所有光源
     static void queryLights(int x, int y, std::vector<LightSource>& out);
+
+    // —— v0.5.4 难度 ——
+    static Difficulty s_difficulty;
+    static float enemyHealthMultiplier();
+    static float enemyDamageMultiplier();
+    static float enemySpeedMultiplier();
 
     // —— 实体生成 ——
     static void setupEntities(
         std::vector<std::unique_ptr<Enemy>>& enemies,
         std::vector<std::unique_ptr<Pickup>>& pickups,
-        Vector2D& startPos,
-        Vector2D& finishPos
-    );
+        Vector2D& startPos, Vector2D& finishPos);
 
     static const char* data();
     static size_t dataSize();
+    static const char* mapName();
 
 private:
-    static const char* s_levelData;
-    static const size_t s_levelSize;
+    static const char* s_mapDatas[MAP_COUNT];
+    static const char* s_mapNames[MAP_COUNT];
+    static int s_currentMap;
+    static const char* s_activeData;
+    static size_t s_activeSize;
 
-    /// 从字符推导墙壁材质
     static WallMaterial materialFromSymbol(char symbol);
 };

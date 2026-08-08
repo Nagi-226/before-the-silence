@@ -1,7 +1,7 @@
 # Retro FPS — 项目全量上下文
 
 > 复古伪3D第一人称射击游戏。基于 SDL2 + C++17，10人 AI Agent 团队协作开发。
-> **当前版本: v0.4.0** | 目标: 达到 Build Engine 级别伪3D天花板效果
+> **当前版本: v0.6.0** | 目标: 达到 Build Engine 级别伪3D天花板效果
 > 本文档是项目唯一入口 — Cursor / Claude Code / 任何 AI 读取本文档即可完整衔接工作。
 
 ---
@@ -74,10 +74,11 @@
 │   ├── framework/               ✅ v0.2.4
 │   │   ├── GameLoop.h           # 固定时间步长主循环（header-only template）
 │   │   └── Scene.h              # 场景基类
-│   ├── game/                    ✅ v0.3.0
+│   ├── game/                    ✅ v0.6.0
 │   │   ├── components/          # Transform, Health, WeaponComponent
 │   │   ├── entities/            # Player, Enemy, Projectile, Pickup
-│   │   ├── systems/             # Movement, Combat, Pickup, Render, EnemyAI, Reload
+│   │   ├── systems/             # Movement, Combat, Pickup, Render, EnemyAI, Reload, ParticleSystem
+│   │   ├── GameConfig.h/cpp     # JSON 配置加载
 │   │   └── Level.h/cpp          # 168×68 符号地图（独立 retrofps_level 库）
 │   └── main.cpp                 ✅ 五层组装完成
 │
@@ -86,21 +87,27 @@
 │   ├── FindSDL2_mixer.cmake     # SDL2_mixer 查找
 │   └── FindSDL2_ttf.cmake       # SDL2_ttf 查找
 │
-├── tests/unit/                  ✅ v0.2.0
+├── tests/unit/                  ✅ v0.6.0 — 127 测试全部通过
 │   ├── test_vector2d.cpp        # 24 用例，100% 通过
-│   └── test_mathaddon.cpp       # 25 用例，100% 通过
+│   ├── test_mathaddon.cpp       # 25 用例，100% 通过
+│   ├── test_level.cpp           # Level 测试
+│   ├── test_particles.cpp       # 粒子系统测试
+│   ├── test_config.cpp          # GameConfig 测试
+│   ├── test_pickup.cpp          # Pickup 测试
+│   ├── test_purelogic.cpp       # 纯逻辑测试
+│   └── test_reload.cpp          # 换弹系统测试
 │
-├── .claude/
-│   ├── agents/                  ✅ 10个Agent（见第4节）
-│   ├── rules/                   ✅ 3个规则（见第5节）
-│   ├── hooks/                   ✅ 2个钩子（见第6节）
-│   └── docs/                    # coding-standards / technical-preferences / coordination-rules / directory-structure
+├── assets/                      # 22 .bmp + 5 .ogg
+│   ├── config/                  # JSON 配置（game/player/weapons/enemies/pickups）
+│   ├── images/                  # 精灵纹理
+│   └── sounds/                  # 音效
 │
-├── scripts/
-│   └── setup_sdl2.ps1           # SDL2 自动下载安装脚本
+├── design/
+│   ├── spec/                    # 架构设计规格
+│   ├── templates/               # GDD、关卡设计、测试计划模板
+│   └── coordination-strategy.md # NEXUS 协调策略
 │
-├── assets/                      # 14 .bmp + 5 .ogg
-├── design/spec/                 # 架构设计规格
+├── docs/superpowers/plans/      # 实现计划文档
 ├── src-legacy/                  # v0.1.0 遗留代码（参考用，不修改）
 └── prototypes/                  # 废弃原型（保留参考）
 ```
@@ -278,7 +285,7 @@
 - FOV: **60°**（π/3 弧度）
 - 精灵尺寸: **16×16** 像素
 
-### 游戏参数（v0.1.0 基线）
+### 游戏参数（v0.6.0 基线）
 | 参数 | 当前值 |
 |------|--------|
 | 玩家血量 | 20 |
@@ -291,7 +298,7 @@
 
 ---
 
-## 9. 版本路线图 v0.2.0 → v0.5.0
+## 9. 版本路线图 v0.2.0 → v0.7.0
 
 ```
 v0.2.0 ✅ 地基 — CMake + Math Layer 49/49 测试通过
@@ -311,105 +318,41 @@ v0.3.3 ✅ 渲染 — 纹理地板/天花板 + 多墙壁材质 + 敌人动画 + 
 v0.3.4 ✅ 拾取 — 浮动动画 + 弹痕贴花系统（FIFO 64上限）
 v0.3.5 ✅ 光照 — 动态光照（火把闪烁 + LightSource 结构体）
 v0.4.0 ✅ 里程碑 — 127+ 测试通过 + 天气/水下/Y-shearing 已实现 + 全链路可测试架构
-v0.4.1 🔜 音效 — 音频系统完善（game-audio-engineer 主导）
-v0.4.2 🔜 关卡 — 地图扩展 + 敌人放置 + 拾取物分布（level-designer 主导）
-v0.4.3 🔜 叙事 — 中文剧情简报/胜利失败文本/拾取物说明（narrative-designer 主导）
-v0.4.4 🔜 打磨 — 全项目审查 + Bug 修复 + 性能调优（lead-programmer 主导）
-v0.4.5 🔜 菜单 — 主菜单/暂停/设置/游戏结束界面（ui-programmer 主导）
-v0.5.0 🔜 里程碑 — 完整可发布 DEMO（菜单→游戏→胜利/失败完整流程）
+v0.4.1 ✅ 音效 — 音频系统基础完善（game-audio-engineer 主导）
+v0.4.2 ✅ 关卡 — 地图扩展 + 敌人放置 + 拾取物分布（level-designer 主导）
+v0.4.3 ✅ 叙事 — 中文剧情简报/胜利失败文本/拾取物说明（narrative-designer 主导）
+v0.4.4 ✅ 打磨 — 全项目审查 + Bug 修复 + 性能调优（lead-programmer 主导）
+v0.4.5 ✅ 菜单 — 主菜单/暂停/设置/游戏结束界面（ui-programmer 主导）
+v0.5.0 ✅ 里程碑 — 完整可发布 DEMO（菜单→游戏→胜利/失败完整流程）
+v0.5.1 ✅ 音频 — SFX + 环境音效 + 音量控制接口
+v0.5.2 ✅ 菜单增强 — 主菜单/暂停/设置/结算 4 场景完善
+v0.5.3 ✅ 关卡 — 2 张精心打磨的地图 + 敌人/拾取物分布
+v0.5.4 ✅ 叙事 — 中文简报/胜利失败文本/拾取物描述完整
+v0.5.5 ✅ 打磨 — 全项目审查 + 数值平衡 + Bug 修复
+v0.6.0 ✅ 里程碑 — 127 测试、双地图/3难度/全游戏循环、零警告、全渲染特性就绪
+v0.6.1 🔜 音乐 — 自适应背景音乐 + Boss 战斗音乐（game-audio-engineer）
+v0.6.2 🔜 Boss  — 2 种 Boss 敌人 + 关卡终局战斗（gameplay-programmer）
+v0.6.3 🔜 视觉 — 区域高度变化 + 传送门效果 + 水面反射（technical-artist）
+v0.6.4 🔜 存档 — 多槽位存档 + 设置持久化 + 新游戏/继续（gameplay-programmer）
+v0.6.5 🔜 测试 — 全流程测试 + 性能调优 + 终极打磨（qa-tester）
+v0.7.0 🔜 成品 — 发布包打包 + 版本标记（lead-programmer）
 ```
-
-> 详细实现计划: `docs/superpowers/plans/2026-05-16-v0.4.1-to-v0.5.0-plan.md`
-> 版本依赖: v0.4.1(音频) ∥ v0.4.2(关卡) → v0.4.3(叙事) → v0.4.4(审查) → v0.4.5(菜单) → v0.5.0(里程碑)
-
-### v0.4.1 目标：音频系统完善（5 任务，game-audio-engineer 主导）
-
-| # | 任务 | 文件 | 关键内容 |
-|---|------|------|---------|
-| 4.1.1 | Audio 模块增强 | `engine/Audio.h/cpp` | SoundType 枚举、通道分配 0-23 SFX/24 音乐/25-27 环境/28-31 UI、分组音量控制、3D 空间化距离衰减 |
-| 4.1.2 | 射击+换弹音效 | `CombatSystem.cpp`, `ReloadSystem.cpp` | 玩家射击/敌人射击/换弹开始完成音效触发 |
-| 4.1.3 | 拾取+受伤+脚步 | `PickupSystem.cpp`, `CombatSystem.cpp`, `MovementSystem.cpp` | 拾取触发音效、敌人受伤音效、移动脚步音效（空间化） |
-| 4.1.4 | 区域环境音效 | `RenderSystem.cpp`, `Level.h` | 水下低通滤波器、区域风声音效、基于玩家位置触发 |
-| 4.1.5 | 音频测试 | `tests/unit/test_audio.cpp` 新建 | Mock SDL2_mixer，通道分配/音量控制/3D定位测试 ≥ 5 用例 |
-
-**验收:** 5 类 SFX 可触发、环境音效区域切换平滑、3D 空间化左右声道正确
-
-### v0.4.2 目标：关卡内容扩展（4 任务，level-designer 主导）
-
-| # | 任务 | 文件 | 关键内容 |
-|---|------|------|---------|
-| 4.2.1 | 地图符号扩展 | `Level.cpp` (levelData) | 起始房间→走廊迷宫→开阔大厅→Boss房→秘密房间，4 种墙壁材质区分区域 |
-| 4.2.2 | 敌人分布+难度曲线 | `Level.cpp`, `enemies.json` | 区域1 小怪×8 → 区域2 小怪+中怪×15 → 区域3 中怪+大怪×10 → Boss房 大怪×3 |
-| 4.2.3 | 拾取物经济学 | `Level.cpp`, `pickups.json` | 生命 H×12 / 金币 C×25 / 弹药 A×8 / 升级 h×2 a×2 w×1，总弹药≥需求×1.3 |
-| 4.2.4 | 路径验证+测试 | `test_level.cpp`, `Level.cpp` | BFS 起点→终点可达、敌人≥20、拾取物≥50、走廊宽度≥1格、水域标记正确 |
-
-**验收:** BFS 验证起点→终点可达、敌人≥20、拾取物≥50、新增测试 ≥ 5 用例
-
-### v0.4.3 目标：叙事层集成（4 任务，narrative-designer 主导）
-
-| # | 任务 | 文件 | 关键内容 |
-|---|------|------|---------|
-| 4.3.1 | NarrativeSystem 新建 | `NarrativeSystem.h/cpp` 新建 | 简报/胜利/失败/拾取描述/区域提示 5 类文本接口，从 narrative.json 加载 |
-| 4.3.2 | 关卡简报+胜利失败文本 | `narrative.json` 新建, `main.cpp` | 3 种胜利条件文本 / 3 种死因文本 / 统计信息（消灭数/拾取数/命中率） |
-| 4.3.3 | 拾取物中文说明+环境叙事 | `PickupSystem.cpp`, `RenderSystem.cpp` | 首次拾取弹出描述 2 秒、特定位置触发中文提示、敌人中文化命名 |
-| 4.3.4 | 叙事测试 | `tests/unit/test_narrative.cpp` 新建 | 简报非空、胜利/失败文本正确、6 种拾取物映射完整、区域提示坐标匹配 |
-
-**验收:** 所有中文文本 UTF-8 编码正确、7 种游戏状态各有对应文本、新测试 ≥ 8 用例
-
-### v0.4.4 目标：全项目审查 + 打磨（6 任务，lead-programmer + qa-tester 主导）
-
-根据项目规则（每 5 个小版本执行全项目审查），v0.3.0→v0.4.0 跨越 10 个版本，必须执行。
-
-| # | 审查项 | 范围 | 产出 |
-|---|--------|------|------|
-| 4.4.1 | 可行性验收 | 全部 41 源文件 | 架构约束无违反、功能完整性核对、Debug+Release 双配置编译 |
-| 4.4.2 | Bug 排查 | 全部 System+Entity | 空指针/数组越界/资源泄漏/浮点除零/整数溢出修复 |
-| 4.4.3 | 代码冗余+耦合 | 5 层引用方向 | 相似代码提取、单文件>500行拆分、循环依赖检测、/W4 零警告 |
-| 4.4.4 | 性能热点 | RenderSystem/Movement/Particles | 渲染≤10ms、逻辑≤5ms、Release 60FPS 稳定 |
-| 4.4.5 | 测试缺口 | 功能清单对比 | 补充 test_combat/test_enemy_ai/test_render，目标 150+ 用例 |
-| 4.4.6 | 数值平衡+边界 | GameConfig JSON | 大怪击杀所需弹药≤弹夹80%、窗口失焦暂停、分辨率切换、存档安全 |
-
-**验收:** 引擎零 game 引用、编译零警告、60FPS 稳定、≥ 150 测试通过
-
-### v0.4.5 目标：菜单系统（5 任务，ui-programmer 主导）
-
-| # | 任务 | 新建文件 | 关键内容 |
-|---|------|---------|---------|
-| 4.5.1 | MenuScene 主菜单 | `scenes/MenuScene.h/cpp` | 渐变天空背景、"开始/继续/设置/退出" 中文菜单、↑↓/鼠标导航 |
-| 4.5.2 | PauseScene 暂停 | `scenes/PauseScene.h/cpp` | ESC 触发、半透明模糊背景、"继续/重新开始/设置/返回主菜单" |
-| 4.5.3 | SettingsScene 设置 | `scenes/SettingsScene.h/cpp` | 主音量/音效/音乐 0-100%、鼠标灵敏度、全屏切换、settings.json 持久化 |
-| 4.5.4 | GameOverScene 结束 | `scenes/GameOverScene.h/cpp` | 统计面板(消灭数/拾取数/时间/命中率/S-D评级)、重新开始/返回主菜单 |
-| 4.5.5 | 场景管理集成+测试 | `Scene.h`, `main.cpp`, `test_menu.cpp` | SceneManager push/pop/replace、场景间数据传递 |
-
-**验收:** 5 个场景可用、中文 UI 全覆盖、设置持久化、菜单测试 ≥ 6 用例
-
-### v0.5.0 目标：完整可发布 DEMO（3 任务，lead-programmer 主导）
-
-| # | 任务 | 关键内容 |
-|---|------|---------|
-| 5.0.1 | 完整流程验证 | 端到端通关测试、失败路径测试、Alt+Tab/全屏切换/FPS 稳定性 |
-| 5.0.2 | 文档更新 | PROJECT.md/CLAUDE.md/CMakeLists.txt 版本号更新至 v0.5.0 |
-| 5.0.3 | Git 版本标记 | `git tag -a v0.5.0` |
-
-**验收:** 完整游戏流程无阻断 Bug、全部测试 ≥ 150 通过、Release 60FPS、Git tag v0.5.0
 
 ---
 
 ## 10. 构建系统
 
-### 快速开始（当前可用）
+### 快速开始
 ```bash
-# 配置（Math Layer + 测试，不依赖 SDL2）
-cmake -B build -G "Visual Studio 17 2022" -A x64 -DBUILD_TESTS=ON
+# 前置条件: E:\vcpkg 已安装 sdl2/sdl2-mixer/sdl2-ttf (x64-windows)
+cmake -B build -DCMAKE_TOOLCHAIN_FILE=E:/vcpkg/scripts/buildsystems/vcpkg.cmake -G "Visual Studio 17 2022" -A x64
+cmake --build build --config Release --target RetroFPS
+# 游戏位于: build/Release/RetroFPS.exe
 
-# 构建数学库
-cmake --build build --config Release --target retrofps_math
-
-# 构建并运行测试
-cmake --build build --config Release --target test_vector2d
-cmake --build build --config Release --target test_mathaddon
-./build/Release/test_vector2d.exe
-./build/Release/test_mathaddon.exe
+# 单元测试
+cmake .. -DBUILD_TESTS=ON  # 重新配置
+cmake --build build --config Debug --target test_vector2d test_mathaddon test_level test_particles test_config test_pickup test_purelogic test_reload
+ctest -C Debug --output-on-failure
 ```
 
 ### 完整构建（需 SDL2）
@@ -477,15 +420,6 @@ cmake -B build -G "Visual Studio 17 2022" -A x64 -DBUILD_TESTS=ON \
 - `design/coordination-strategy.md` — NEXUS 协调策略 → 项目阶段映射
 - `.claude/docs/` — 编码标准、技术偏好（ADR）、协作规则、目录结构
 
-### MCP 服务器（可用）
-- Context7 — 实时文档查询
-- GitHub — 仓库操作
-- Tencent Cloud COS — 对象存储
-- EdgeOne Pages — 前端部署
-
-### 知识库（可检索）
-- 腾讯云API, 微信小程序, 微信云开发, TDesign, 微信支付, 腾讯地图小程序
-
 ---
 
 ## 13. 伪3D 视觉天花板目标
@@ -494,17 +428,17 @@ cmake -B build -G "Visual Studio 17 2022" -A x64 -DBUILD_TESTS=ON \
 
 | 优先级 | 效果 | 版本 |
 |--------|------|------|
-| P0 | 纹理墙 + 5级距离阴影 | v0.2.6 |
-| P0 | 渐变天空 + 距离雾 | v0.2.7 |
-| P0 | 枪口闪光 + 受击反馈 + 视角晃动 | v0.2.6 |
-| P1 | 纹理地板/天花板 | v0.3.x |
-| P1 | 多种墙壁纹理 + 多帧敌人动画 | v0.3.x |
-| P1 | 粒子系统（枪火/血雾/爆炸） | v0.4.x |
+| P0 | 纹理墙 + 5级距离阴影 | v0.2.6 ✅ |
+| P0 | 渐变天空 + 距离雾 | v0.2.7 ✅ |
+| P0 | 枪口闪光 + 受击反馈 + 视角晃动 | v0.2.6 ✅ |
+| P1 | 纹理地板/天花板 | v0.3.3 ✅ |
+| P1 | 多种墙壁纹理 + 多帧敌人动画 | v0.3.3 ✅ |
+| P1 | 粒子系统（枪火/血雾/爆炸） | v0.4.0 ✅ |
 | P2 | 动态光源（火把闪烁） | v0.3.5 ✅ |
 | P2 | 天气效果（雨/雪） | v0.4.0 ✅ |
 | P2 | 水下/毒气区域特效 | v0.4.0 ✅ |
 | P3 | 上下视角（Y-shearing） | v0.4.0 ✅ |
-| P3 | 区域高度变化 | v0.6.x |
+| P3 | 区域高度变化 | v0.6.x 🔜 |
 
 ---
 

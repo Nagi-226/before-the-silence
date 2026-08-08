@@ -1,5 +1,6 @@
 #include "game/systems/RenderSystem.h"
 #include "game/systems/ParticleSystem.h"
+#include "game/systems/CombatSystem.h"
 #include "game/GameConfig.h"
 #include "math/MathAddon.h"
 #include <cmath>
@@ -23,6 +24,12 @@ RenderSystem::RenderSystem(ResourceCache& cache, const GameConfig& config, Parti
     s_texGrate   = cache.loadTexture("Wall Grate.bmp");
     s_texFloor   = cache.loadTexture("Floor Tile.bmp");
     s_texCeiling = cache.loadTexture("Ceiling.bmp");
+    s_texCloud   = cache.loadTexture("Cloud.bmp");
+    s_texWeapon  = cache.loadTexture("Weapon.bmp");
+    // v0.6.2: 加载敌人精灵纹理（精灵表，多帧动画）
+    s_texAlienSmall  = cache.loadTexture("Alien Small.bmp");
+    s_texAlienMedium = cache.loadTexture("Alien Medium.bmp");
+    s_texAlienLarge  = cache.loadTexture("Alien Large.bmp");
     m_spriteBuffer.reserve(64);
     m_pixelBuffer.resize(WORLD_WIDTH * WORLD_HEIGHT);
 }
@@ -64,22 +71,27 @@ void RenderSystem::render(Renderer& renderer, const Player& player,
     float listDepth[WORLD_WIDTH] = {};
 
     // 1. 天空 + 地面
-    if (s_texturedFloors && s_texFloor) {
-        drawTexturedCeiling(renderer, player);
-        drawTexturedFloor(renderer, player);
+    if (s_cloudSkybox) {
+        drawCloudSkybox(renderer, dT, player);
+    } else if (s_texturedFloors && s_texFloor) {
+        drawTexturedCeiling();
+        drawTexturedFloor(player);
         flushFloorCeiling(renderer, m_floorCeilTex, m_pixelBuffer);
     } else {
         drawSkyGradient(renderer);
     }
 
-    // 2. 墙壁
+    // 2. 墙壁（区域高度由 s_wallHeightVariation 控制，内部处理）
     drawWalls(renderer, player, listDepth);
 
     // 3. 距离雾
     applyDistanceFog(renderer, listDepth);
 
     // 4. 弹痕贴花
-    drawDecals(renderer, player, dT);
+    drawDecals(renderer, dT);
+
+    // 4.5 v0.4.7 弹道拖尾
+    drawTracers(renderer, player, dT);
 
     // 5. 动态光照
     if (s_dynamicLights) {
@@ -98,7 +110,7 @@ void RenderSystem::render(Renderer& renderer, const Player& player,
     }
 
     // 8. 精灵
-    drawSprites(renderer, player, enemies, pickups, listDepth, dT);
+    drawSprites(renderer, player, enemies, pickups, listDepth);
 
     // 9. 水下/毒气
     if (s_underwaterFX) {
@@ -114,9 +126,17 @@ void RenderSystem::render(Renderer& renderer, const Player& player,
         applyYShear(renderer, player);
     }
 
-    // 12. HUD + 小地图
+    // 12. v0.4.4 武器模型
+    if (s_weaponModel) {
+        drawWeaponModel(renderer, player);
+    }
+
+    // 13. HUD + 小地图
     drawHUD(renderer, player);
     drawMinimap(renderer, player, enemies, pickups);
+
+    // 14. v0.4.6 游戏状态覆盖层
+    drawGameOverlay(renderer, player);
 
     renderer.endFrame();
 }
@@ -127,7 +147,10 @@ void RenderSystem::render(Renderer& renderer, const Player& player,
 
 RaycastResult RenderSystem::raycast(Vector2D start, Vector2D dir) {
     RaycastResult result;
-    Vector2D deltaDist(std::abs(1.0f / dir.x), std::abs(1.0f / dir.y));
+    // 防止除零 → infinity → DDA 死循环/崩溃
+    float invX = (std::abs(dir.x) < 1e-8f) ? 1e8f : (1.0f / std::abs(dir.x));
+    float invY = (std::abs(dir.y) < 1e-8f) ? 1e8f : (1.0f / std::abs(dir.y));
+    Vector2D deltaDist(invX, invY);
 
     int mapX = static_cast<int>(start.x), mapY = static_cast<int>(start.y);
     int stepX, stepY;
@@ -165,15 +188,24 @@ RaycastResult RenderSystem::raycast(Vector2D start, Vector2D dir) {
 //  渐变天空
 // ============================================================================
 
-void RenderSystem::drawSkyGradient(Renderer& renderer) {
-    int halfH = WORLD_HEIGHT / 2;
-    SDL_Color skyTop{32, 40, 60, 255}, skyBot{100, 120, 160, 255};
+static void drawSkyGradientImpl(Renderer& renderer, SDL_Color top, SDL_Color bot) {
+    int halfH = RenderSystem::WORLD_HEIGHT / 2;
     for (int y = 0; y < halfH; ++y) {
         float t = static_cast<float>(y) / (halfH - 1);
-        SDL_Color c = lerpColor(skyTop, skyBot, t);
+        SDL_Color c = {
+            static_cast<Uint8>(top.r + (bot.r - top.r) * t),
+            static_cast<Uint8>(top.g + (bot.g - top.g) * t),
+            static_cast<Uint8>(top.b + (bot.b - top.b) * t),
+            255
+        };
         renderer.setColor(c.r, c.g, c.b);
-        renderer.fillRect(0, y, WORLD_WIDTH, 1);
+        renderer.fillRect(0, y, RenderSystem::WORLD_WIDTH, 1);
     }
+}
+
+void RenderSystem::drawSkyGradient(Renderer& renderer) {
+    drawSkyGradientImpl(renderer, {32, 40, 60, 255}, {100, 120, 160, 255});
+    int halfH = WORLD_HEIGHT / 2;
     renderer.setColor(64, 64, 64);
     renderer.fillRect(0, halfH, WORLD_WIDTH, halfH);
 }
@@ -182,7 +214,7 @@ void RenderSystem::drawSkyGradient(Renderer& renderer) {
 //  纹理地板/天花板
 // ============================================================================
 
-void RenderSystem::drawTexturedFloor(Renderer& renderer, const Player& player) {
+void RenderSystem::drawTexturedFloor(const Player& player) {
     if (!s_texFloor) return;
     int halfH = WORLD_HEIGHT / 2;
     float dirX0 = player.transform.angle - FOV_RAD / 2.0f;
@@ -208,7 +240,7 @@ void RenderSystem::drawTexturedFloor(Renderer& renderer, const Player& player) {
     }
 }
 
-void RenderSystem::drawTexturedCeiling(Renderer& renderer, const Player& player) {
+void RenderSystem::drawTexturedCeiling() {
     if (!s_texCeiling) return;
     int halfH = WORLD_HEIGHT / 2;
 
@@ -240,7 +272,7 @@ static void flushFloorCeiling(Renderer& renderer, SDL_Texture*& tex,
 // ============================================================================
 
 Uint8 RenderSystem::getShadeLevel(float distance, float colorFactor) {
-    float shade;
+    float shade = 0.15f;  // 默认最暗，防止 NaN 距离导致未初始化
     if      (distance < 3.0f)  shade = 1.0f;
     else if (distance < 6.0f)  shade = 0.75f;
     else if (distance < 9.0f)  shade = 0.5f;
@@ -251,6 +283,9 @@ Uint8 RenderSystem::getShadeLevel(float distance, float colorFactor) {
 
 void RenderSystem::drawWallColumn(Renderer& renderer, int x, const RaycastResult& hit,
                                    int yTop, int height, float /*shade*/) {
+    // 安全钳位: 防止极端距离导致非法渲染坐标
+    if (height <= 0 || height > WORLD_HEIGHT * 4) return;
+    if (yTop < -WORLD_HEIGHT || yTop > WORLD_HEIGHT * 4) return;
     Uint8 s = getShadeLevel(hit.distance, hit.colorFactor);
 
     if (hit.material == WallMaterial::Grate) {
@@ -303,11 +338,31 @@ void RenderSystem::drawWalls(Renderer& renderer, const Player& player, float lis
         RaycastResult hit = raycast(player.transform.position, Vector2D(rayAngle));
 
         if (hit.distance > 0.0f) {
-            listDepth[x] = hit.distance;
-            float wallH = static_cast<float>(WORLD_HEIGHT) / hit.distance;
-            if (wallH > WORLD_HEIGHT) wallH = static_cast<float>(WORLD_HEIGHT);
-            int yTop = static_cast<int>((WORLD_HEIGHT - wallH) / 2);
-            drawWallColumn(renderer, x, hit, yTop, static_cast<int>(wallH), 1.0f);
+            // 鱼眼校正（参考 DOOM/Wolf3D 经典实现，消除边缘拉伸畸变）
+            float correctedDist = hit.distance * std::cos(angleOffset);
+            if (correctedDist < 0.2f) correctedDist = 0.2f;
+            listDepth[x] = correctedDist;
+
+            // v0.4.1 区域高度变化
+            float floorH = 0.5f, ceilH = 0.5f;
+            if (s_wallHeightVariation) {
+                int cellX = static_cast<int>(hit.hitX);
+                int cellY = static_cast<int>(hit.hitY);
+                floorH = Level::getFloorHeight(cellX, cellY);
+                ceilH = Level::getCeilingHeight(cellX, cellY);
+            }
+
+            // 墙体以地平线为中心，pitch 控制上下看
+            float pitchAdj = player.lookOffset / Player::MAX_LOOK_OFFSET;
+            int pitchShift = static_cast<int>(pitchAdj * WORLD_HEIGHT * 0.4f);
+            int horizon = WORLD_HEIGHT / 2 + pitchShift;
+            int yTop    = static_cast<int>(horizon - WORLD_HEIGHT * ceilH  / correctedDist);
+            int yBottom = static_cast<int>(horizon + WORLD_HEIGHT * floorH / correctedDist);
+            if (yTop < 0)    yTop = 0;
+            if (yBottom >= WORLD_HEIGHT) yBottom = WORLD_HEIGHT - 1;
+            int wallH = yBottom - yTop;
+            if (wallH <= 0) continue;
+            drawWallColumn(renderer, x, hit, yTop, wallH, 1.0f);
         }
     }
 }
@@ -334,11 +389,15 @@ void RenderSystem::applyDistanceFog(Renderer& renderer, const float listDepth[])
 void RenderSystem::drawSprites(Renderer& renderer, const Player& player,
                                 const std::vector<std::unique_ptr<Enemy>>& enemies,
                                 const std::vector<std::unique_ptr<Pickup>>& pickups,
-                                const float listDepth[], float dT) {
+                                const float listDepth[]) {
     m_spriteBuffer.clear();
 
     for (const auto& enemy : enemies) {
-        if (!enemy->isAlive()) continue;
+        // v0.4.7 显示活着的敌人 + 淡出中的尸体
+        bool isDead = (enemy->state == Enemy::State::Dead);
+        if (!enemy->isAlive() && !isDead) continue;
+        if (isDead && enemy->corpseFadeTimer <= 0.0f) continue;
+
         float dist = player.transform.position.distanceTo(enemy->transform.position);
         if (dist < 0.5f || dist > 25.0f) continue;
 
@@ -349,14 +408,30 @@ void RenderSystem::drawSprites(Renderer& renderer, const Player& player,
 
         float baseSize = 14.0f + 4.0f * (enemy->weapon.damage);
         float animScale = s_animatedEnemies ? (1.0f + 0.05f * std::sin(enemy->animTimer * 6.28f)) : 1.0f;
+        float fadeAlpha = 1.0f;
+        // 尸体淡出缩小时变暗
+        if (isDead) {
+            fadeAlpha = enemy->corpseFadeTimer / Enemy::CORPSE_FADE_DURATION;
+            baseSize *= fadeAlpha;
+        }
         float size = baseSize * animScale;
+
+        // v0.6.2: 根据模板ID选择对应精灵纹理
+        SDL_Texture* tex = nullptr;
+        if (enemy->templateId == 0)      tex = s_texAlienSmall;
+        else if (enemy->templateId == 1) tex = s_texAlienMedium;
+        else if (enemy->templateId == 2) tex = s_texAlienLarge;
 
         Uint8 r = enemy->hurtTimer > 0.0f ? (Uint8)255 : (Uint8)220;
         Uint8 g = enemy->hurtTimer > 0.0f ? (Uint8)50  : (Uint8)30;
         if (s_animatedEnemies && enemy->state == Enemy::State::Attacking) {
             r = 255; g = 40;
         }
-        m_spriteBuffer.push_back({enemy->transform.position, dist, diff, r, g, 0, size, 0.0f, false});
+        m_spriteBuffer.push_back({
+            enemy->transform.position, dist, diff,
+            r, g, 0, size, 0.0f, false,
+            tex, enemy->animFrame, isDead, fadeAlpha
+        });
     }
 
     for (const auto& pickup : pickups) {
@@ -384,20 +459,67 @@ void RenderSystem::drawSprites(Renderer& renderer, const Player& player,
     std::sort(m_spriteBuffer.begin(), m_spriteBuffer.end(),
         [](const SpriteEntry& a, const SpriteEntry& b) { return a.dist > b.dist; });
 
+    // 上下看偏移（与墙壁/天空一致的 pitch 公式）
+    int pitchShift = static_cast<int>(player.lookOffset / Player::MAX_LOOK_OFFSET * WORLD_HEIGHT * 0.4f);
+
     for (const auto& sp : m_spriteBuffer) {
-        float screenX = WORLD_WIDTH / 2.0f - (sp.diff / (FOV_RAD / 2.0f)) * (WORLD_WIDTH / 2.0f);
-        float screenSize = sp.size * WORLD_HEIGHT / sp.dist;
-        if (screenSize > WORLD_HEIGHT * 2) screenSize = WORLD_HEIGHT * 2.0f;
-        float halfS = screenSize / 2.0f;
-        if (screenX + halfS < 0 || screenX - halfS > WORLD_WIDTH) continue;
+        float screenX, screenSize;
+        float correctedDist = sp.dist * std::cos(sp.diff);
+        if (correctedDist < 0.3f) correctedDist = 0.3f;
+        projectToScreen(sp.diff, correctedDist, screenX, screenSize);
+        screenSize = screenSize * sp.size / 16.0f;
+        constexpr float MAX_SPRITE_PX = 80.0f; // v0.6.3: 放宽上限，近距离更大
+        if (screenSize > MAX_SPRITE_PX) screenSize = MAX_SPRITE_PX;
 
-        int col = static_cast<int>(screenX);
-        if (col > 0 && col < WORLD_WIDTH && sp.dist > listDepth[col] + 0.3f) continue;
+        int dstW = static_cast<int>(screenSize);
+        int dstH = static_cast<int>(screenSize);
+        int xLeft  = static_cast<int>(screenX - dstW / 2.0f);
+        int yTop   = static_cast<int>(WORLD_HEIGHT / 2.0f - dstH / 2.0f + sp.bobY + pitchShift);
+        int xRight = xLeft + dstW;
 
-        renderer.setColor(sp.r, sp.g, sp.b);
-        renderer.fillRect(static_cast<int>(screenX - halfS),
-                          static_cast<int>(WORLD_HEIGHT / 2.0f - halfS + sp.bobY),
-                          static_cast<int>(screenSize), static_cast<int>(screenSize));
+        // v0.6.3: 恢复原始(src-legacy)逐列深度测试纹理渲染
+        // 参考原 Sprite::draw() — 逐像素列检查深度缓冲，实现精灵部分遮挡
+        if (!sp.isPickup && sp.tex) {
+            int frameX = sp.animFrame * Enemy::FRAME_WIDTH;
+            int texW   = Enemy::FRAME_WIDTH; // 32px 单帧宽度
+
+            // 受伤闪红调色
+            bool hurtFlash = (sp.r == 255 && sp.g < 100);
+            if (hurtFlash) {
+                SDL_SetTextureColorMod(sp.tex, 255, static_cast<Uint8>(sp.g), 0);
+            }
+            // 尸体淡出
+            if (sp.isDead) {
+                Uint8 shade = static_cast<Uint8>(255 * sp.fadeAlpha);
+                SDL_SetTextureAlphaMod(sp.tex, shade);
+            }
+
+            // 逐列渲染，每列单独做深度测试
+            for (int col = 0; col < texW; ++col) {
+                int screenCol = xLeft + (col * dstW) / texW;
+                if (screenCol < 0 || screenCol >= WORLD_WIDTH) continue; // 屏幕裁剪
+
+                // 深度测试：仅当精灵比墙壁更近时才绘制此列
+                if (listDepth[screenCol] <= 0.0f || correctedDist < listDepth[screenCol]) {
+                    SDL_Rect src = { frameX + col, 0, 1, 32 };
+                    SDL_Rect dst = { screenCol, yTop, 1, dstH };
+                    renderer.copyTexture(sp.tex, &src, &dst);
+                }
+            }
+
+            // 恢复纹理调制
+            SDL_SetTextureColorMod(sp.tex, 255, 255, 255);
+            SDL_SetTextureAlphaMod(sp.tex, 255);
+        } else {
+            // 拾取物：逐列检测遮挡，可见列才绘制
+            for (int col = xLeft; col <= xRight; ++col) {
+                if (col < 0 || col >= WORLD_WIDTH) continue;
+                if (listDepth[col] <= 0.0f || correctedDist < listDepth[col]) {
+                    renderer.setColor(sp.r, sp.g, sp.b);
+                    renderer.drawVerticalLine(col, yTop, dstH);
+                }
+            }
+        }
     }
 }
 
@@ -405,7 +527,7 @@ void RenderSystem::drawSprites(Renderer& renderer, const Player& player,
 //  弹痕贴花
 // ============================================================================
 
-void RenderSystem::drawDecals(Renderer& renderer, const Player& player, float dT) {
+void RenderSystem::drawDecals(Renderer& renderer, float dT) {
     for (auto& decal : s_decals) {
         decal.lifetime -= dT;
         if (decal.lifetime <= 0.0f) continue;
@@ -542,8 +664,11 @@ void RenderSystem::initMinimapGrid() {
     const float sy = static_cast<float>(MM_H) / Level::HEIGHT;
     for (int ly = 0; ly < MM_H; ++ly) {
         for (int lx = 0; lx < MM_W; ++lx) {
-            m_minimapWalls[ly * MM_W + lx] =
-                Level::isWall(static_cast<int>(lx / sx), static_cast<int>(ly / sy));
+            int wx = static_cast<int>(lx / sx);
+            int wy = static_cast<int>(ly / sy);
+            wx = (wx < 0) ? 0 : ((wx >= Level::WIDTH) ? Level::WIDTH - 1 : wx);
+            wy = (wy < 0) ? 0 : ((wy >= Level::HEIGHT) ? Level::HEIGHT - 1 : wy);
+            m_minimapWalls[ly * MM_W + lx] = Level::isWall(wx, wy);
         }
     }
     m_minimapReady = true;
@@ -552,53 +677,66 @@ void RenderSystem::initMinimapGrid() {
 void RenderSystem::drawMinimap(Renderer& renderer, const Player& player,
                                 const std::vector<std::unique_ptr<Enemy>>& enemies,
                                 const std::vector<std::unique_ptr<Pickup>>& pickups) {
-    const int mmX = WORLD_WIDTH - 44, mmY = WORLD_HEIGHT - 28;
+    // v0.6.1: 增大尺寸，更清晰
+    const int mmX = WORLD_WIDTH - MM_W - 2, mmY = WORLD_HEIGHT - MM_H - 2;
     const float sx = static_cast<float>(MM_W) / Level::WIDTH;
     const float sy = static_cast<float>(MM_H) / Level::HEIGHT;
 
     if (!m_minimapReady) initMinimapGrid();
 
-    renderer.setColor(0, 0, 0, 180);
-    renderer.fillRect(mmX, mmY, MM_W, MM_H);
+    // 半透明背景
+    renderer.setColor(0, 0, 0, 160);
+    renderer.fillRect(mmX - 1, mmY - 1, MM_W + 2, MM_H + 2);
 
-    // 预计算墙壁数据 — 单层循环，无 Level::isWall 调用
+    // 墙壁 — 每个像素单独渲染，映射到世界地图的对应位置
     for (int ly = 0; ly < MM_H; ++ly) {
         for (int lx = 0; lx < MM_W; ++lx) {
             if (m_minimapWalls[ly * MM_W + lx]) {
-                renderer.setColor(60, 60, 60);
+                renderer.setColor(80, 80, 80);
                 renderer.fillRect(mmX + lx, mmY + ly, 1, 1);
             }
         }
     }
 
+    // 实体 — 只显示非常近的（玩家周围 8 格内）
+    constexpr float MM_ENTITY_RANGE = 8.0f;
     for (const auto& pk : pickups) {
-        if (!pk->consumable) {
-            renderer.setColor(255, 255, 0);
-            renderer.fillRect(mmX + static_cast<int>(pk->transform.position.x * sx) - 1,
-                              mmY + static_cast<int>(pk->transform.position.y * sy) - 1, 2, 2);
-        } else if (!pk->consumed) {
-            renderer.setColor(0, 255, 100);
-            renderer.fillRect(mmX + static_cast<int>(pk->transform.position.x * sx),
-                              mmY + static_cast<int>(pk->transform.position.y * sy), 1, 1);
+        if (pk->consumed) continue;
+        if (pk->transform.position.distanceTo(player.transform.position) > MM_ENTITY_RANGE) continue;
+        int px = mmX + static_cast<int>(pk->transform.position.x * sx);
+        int py = mmY + static_cast<int>(pk->transform.position.y * sy);
+        if (pk->type == Pickup::Type::Coin) {
+            renderer.setColor(255, 215, 0); // 金色
+        } else if (pk->type == Pickup::Type::Health || pk->type == Pickup::Type::UpgradeHealth) {
+            renderer.setColor(255, 80, 80);  // 红色
+        } else {
+            renderer.setColor(80, 80, 255);  // 蓝色（弹药/升级）
         }
+        renderer.fillRect(px, py, 1, 1);
     }
 
-    for (const auto& e : enemies)
-        if (e->isAlive()) {
-            renderer.setColor(255, 30, 30);
-            renderer.fillRect(mmX + static_cast<int>(e->transform.position.x * sx),
-                              mmY + static_cast<int>(e->transform.position.y * sy), 1, 1);
-        }
+    for (const auto& e : enemies) {
+        if (!e->isAlive()) continue;
+        if (e->transform.position.distanceTo(player.transform.position) > MM_ENTITY_RANGE) continue;
+        renderer.setColor(255, 30, 30); // 红色敌人
+        int ex = mmX + static_cast<int>(e->transform.position.x * sx);
+        int ey = mmY + static_cast<int>(e->transform.position.y * sy);
+        renderer.fillRect(ex, ey, 1, 1);
+    }
 
+    // 玩家 — 白色十字
+    int px = mmX + static_cast<int>(player.transform.position.x * sx);
+    int py = mmY + static_cast<int>(player.transform.position.y * sy);
     renderer.setColor(255, 255, 255);
-    renderer.fillRect(mmX + static_cast<int>(player.transform.position.x * sx) - 1,
-                      mmY + static_cast<int>(player.transform.position.y * sy) - 1, 2, 2);
+    renderer.fillRect(px - 1, py, 3, 1);
+    renderer.fillRect(px, py - 1, 1, 3);
 
-    renderer.setColor(100, 100, 100, 128);
-    renderer.fillRect(mmX - 1, mmY - 1, MM_W + 2, 1);
-    renderer.fillRect(mmX - 1, mmY + MM_H, MM_W + 2, 1);
-    renderer.fillRect(mmX - 1, mmY, 1, MM_H);
-    renderer.fillRect(mmX + MM_W, mmY, 1, MM_H);
+    // 边框
+    renderer.setColor(100, 100, 100, 200);
+    renderer.fillRect(mmX - 1, mmY - 1, MM_W + 2, 1);      // 上
+    renderer.fillRect(mmX - 1, mmY + MM_H, MM_W + 2, 1);    // 下
+    renderer.fillRect(mmX - 1, mmY, 1, MM_H);               // 左
+    renderer.fillRect(mmX + MM_W, mmY, 1, MM_H);            // 右
 }
 
 // ============================================================================
@@ -611,6 +749,11 @@ SDL_Color RenderSystem::lerpColor(SDL_Color a, SDL_Color b, float t) {
         static_cast<Uint8>(a.g + (b.g - a.g) * t),
         static_cast<Uint8>(a.b + (b.b - a.b) * t), 255
     };
+}
+
+void RenderSystem::projectToScreen(float diff, float dist, float& screenX, float& screenSize) {
+    screenX = WORLD_WIDTH / 2.0f - (diff / (FOV_RAD / 2.0f)) * (WORLD_WIDTH / 2.0f);
+    screenSize = 16.0f * WORLD_HEIGHT / dist;
 }
 
 // ============================================================================
@@ -632,8 +775,9 @@ void RenderSystem::drawParticles(Renderer& renderer, const Player& player, float
         float dist = toParticle.magnitude();
         if (dist < 0.2f || dist > 15.0f) continue;
 
-        float screenX = WORLD_WIDTH / 2.0f - (diff / (FOV_RAD / 2.0f)) * (WORLD_WIDTH / 2.0f);
-        float screenSize = p.size * WORLD_HEIGHT / dist;
+        float screenX, screenSize;
+        projectToScreen(diff, dist, screenX, screenSize);
+        screenSize = screenSize * p.size / 16.0f;
         if (screenSize < 1.0f || screenSize > 20.0f) continue;
 
         Uint8 alpha = static_cast<Uint8>(p.alpha() * 255);
@@ -673,15 +817,14 @@ void RenderSystem::applyUnderwaterFX(Renderer& renderer, const Player& player, f
 
     if (!inWater) return;
 
-    static float distortionPhase = 0.0f;
-    distortionPhase += dT * 2.0f;
+    m_distortionPhase += dT * 2.0f;
 
-    float wave = std::sin(distortionPhase) * 0.5f + 0.5f;
+    float wave = std::sin(m_distortionPhase) * 0.5f + 0.5f;
     renderer.setColor(0, 60, static_cast<Uint8>(120 * wave), 40);
     renderer.fillRect(0, 0, WORLD_WIDTH, WORLD_HEIGHT);
 
     for (int y = 0; y < WORLD_HEIGHT; y += 8) {
-        float offset = std::sin(distortionPhase + y * 0.1f) * 2.0f;
+        float offset = std::sin(m_distortionPhase + y * 0.1f) * 2.0f;
         renderer.setColor(0, 50, 100, 30);
         renderer.fillRect(static_cast<int>(offset), y, WORLD_WIDTH, 2);
     }
@@ -702,4 +845,133 @@ void RenderSystem::applyYShear(Renderer& renderer, const Player& player) {
     } else if (offset < 0) {
         renderer.fillRect(0, WORLD_HEIGHT + offset, WORLD_WIDTH, -offset);
     }
+}
+
+// ============================================================================
+//  v0.4.2 云层天空盒
+// ============================================================================
+
+void RenderSystem::drawCloudSkybox(Renderer& renderer, float dT, const Player& player) {
+    m_cloudOffset += dT * 8.0f;
+
+    // 上下看时平移地平线
+    float pitchAdj = player.lookOffset / Player::MAX_LOOK_OFFSET;
+    int horizon = WORLD_HEIGHT / 2 + static_cast<int>(pitchAdj * WORLD_HEIGHT * 0.4f);
+    if (horizon < WORLD_HEIGHT / 4) horizon = WORLD_HEIGHT / 4;
+    if (horizon > WORLD_HEIGHT * 3 / 4) horizon = WORLD_HEIGHT * 3 / 4;
+
+    drawSkyGradientImpl(renderer, {32, 40, 60, 255}, {100, 120, 160, 255});
+
+    // 滚动云层（天空区域）
+    if (s_texCloud) {
+        for (int y = 10; y < horizon - 20; y += 30) {
+            int cloudY = y + static_cast<int>(std::sin(y * 0.02f + m_cloudOffset * 0.3f) * 5.0f);
+            SDL_Rect src = { static_cast<int>(m_cloudOffset) % 200, 0, WORLD_WIDTH, 32 };
+            SDL_Rect dst = { 0, cloudY, WORLD_WIDTH, 20 };
+            SDL_SetTextureAlphaMod(s_texCloud, 80);
+            renderer.copyTexture(s_texCloud, &src, &dst);
+            SDL_SetTextureAlphaMod(s_texCloud, 255);
+        }
+    }
+
+    // 地面（从地平线开始）
+    renderer.setColor(64, 64, 64);
+    if (horizon < WORLD_HEIGHT)
+        renderer.fillRect(0, horizon, WORLD_WIDTH, WORLD_HEIGHT - horizon);
+}
+
+// ============================================================================
+//  v0.4.4 武器模型动画
+// ============================================================================
+
+void RenderSystem::drawWeaponModel(Renderer& renderer, const Player& player) {
+    // 绘制武器（屏幕底部居中）
+    if (s_texWeapon) {
+        int weaponW = 80, weaponH = 60;
+        int wx = WORLD_WIDTH / 2 - weaponW / 2;
+        int wy = WORLD_HEIGHT - weaponH;
+
+        // 开火时上跳
+        if (player.muzzleFlashTimer > 0.0f) {
+            wy -= static_cast<int>(5.0f * player.muzzleFlashTimer / Player::MUZZLE_FLASH_DURATION);
+        }
+
+        int frameX = player.weaponAnimFrame * 32;
+        SDL_Rect src = { frameX, 0, 32, 60 };
+        SDL_Rect dst = { wx, wy, weaponW, weaponH };
+        renderer.copyTexture(s_texWeapon, &src, &dst);
+    } else {
+        renderer.setColor(80, 80, 80);
+        renderer.fillRect(WORLD_WIDTH / 2 - 15, WORLD_HEIGHT - 40, 30, 40);
+        if (player.muzzleFlashTimer > 0.0f) {
+            renderer.setColor(255, 200, 50);
+            renderer.fillRect(WORLD_WIDTH / 2 - 4, WORLD_HEIGHT - 50, 8, 12);
+        }
+    }
+}
+
+// ============================================================================
+//  v0.4.7 弹道拖尾渲染
+// ============================================================================
+
+static std::vector<CombatSystem::TracerLine> s_tracers;
+
+void RenderSystem::addTracer(Vector2D from, Vector2D to) {
+    if (s_tracers.size() > 128) s_tracers.erase(s_tracers.begin());
+    s_tracers.push_back({from, to, 0.08f});
+}
+
+void RenderSystem::drawTracers(Renderer& renderer, const Player& player, float dT) {
+    for (auto& t : s_tracers) t.lifetime -= dT;
+    s_tracers.erase(std::remove_if(s_tracers.begin(), s_tracers.end(),
+        [](const auto& t) { return t.lifetime <= 0.0f; }), s_tracers.end());
+
+    for (const auto& t : s_tracers) {
+        float alpha = t.lifetime / 0.08f;
+        if (alpha > 1.0f) alpha = 1.0f;
+
+        Vector2D mid = (t.from + t.to) * 0.5f;
+        float dist = mid.distanceTo(player.transform.position);
+        if (dist < 0.3f || dist > 15.0f) continue;
+
+        float screenX = WORLD_WIDTH / 2.0f;
+        float size = 3.0f * WORLD_HEIGHT / dist;
+        if (size > 6.0f) size = 6.0f;
+        if (size < 1.0f) continue;
+
+        renderer.setColor(255, 220, 100, static_cast<Uint8>(alpha * 200));
+        renderer.fillRect(static_cast<int>(screenX - size / 2),
+                          WORLD_HEIGHT / 2 - 1,
+                          static_cast<int>(size), 2);
+    }
+}
+
+// ============================================================================
+//  v0.4.6 游戏状态覆盖层
+// ============================================================================
+
+void RenderSystem::drawGameOverlay(Renderer& renderer, const Player& player) {
+    int cx = WORLD_WIDTH / 2, cy = WORLD_HEIGHT / 2;
+
+    if (player.gameState == Player::State::Victory) {
+        renderer.setColor(0, 0, 0, 150);
+        renderer.fillRect(0, 0, WORLD_WIDTH, WORLD_HEIGHT);
+        renderer.setColor(50, 255, 50);
+        renderer.fillRect(cx - 40, cy - 12, 80, 24);
+        renderer.setColor(0, 0, 0);
+        renderer.fillRect(cx - 38, cy - 10, 76, 20);
+        renderer.setColor(50, 255, 50);
+        renderer.fillRect(cx - 30, cy - 4, 60, 8);
+    }
+    else if (player.gameState == Player::State::Defeat) {
+        renderer.setColor(100, 0, 0, 150);
+        renderer.fillRect(0, 0, WORLD_WIDTH, WORLD_HEIGHT);
+        renderer.setColor(255, 50, 50);
+        renderer.fillRect(cx - 40, cy - 12, 80, 24);
+        renderer.setColor(0, 0, 0);
+        renderer.fillRect(cx - 38, cy - 10, 76, 20);
+        renderer.setColor(255, 100, 100);
+        renderer.fillRect(cx - 30, cy - 4, 60, 8);
+    }
+
 }

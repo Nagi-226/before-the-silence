@@ -13,9 +13,9 @@
 
   "enemyTemplates": [
     {
-      "damage": 0,
-      "fireRate": 0.0,
-      "bulletSpeed": 0.0
+      "damage": 1,
+      "fireRate": 10.0,
+      "bulletSpeed": 8.0
     },
     {
       "damage": 2,

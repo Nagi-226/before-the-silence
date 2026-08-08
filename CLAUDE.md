@@ -1,9 +1,31 @@
-# Retro FPS — v0.4.0
+# Retro FPS — v0.6.0
 
 复古伪3D FPS。SDL2 + C++17，5 层架构，10 人 Agent 团队协作开发。
-**127+ 测试全部通过。粒子/天气/水下/Y-shearing 已实现。**
-**计划文档:** `docs/superpowers/plans/2026-05-16-v0.4.1-to-v0.5.0-plan.md`
+**127 测试 + 双地图/3难度/全游戏循环。详细 → PROJECT.md**
+**127 测试全部通过。零编译警告。全特性就绪。**
+**启动:** 双击 `启动游戏.bat` 或 `build/Release/RetroFPS.exe`
+**计划:** `docs/superpowers/plans/2026-05-16-v0.4.1-to-v0.5.0-plan.md` (v0.4.1→v0.5.0)
+**路线图:** `docs/superpowers/plans/2026-05-16-v0.5.0-to-v0.7.0-plan.md` (v0.5.0→v0.7.0)
 **详细 → PROJECT.md**
+
+## 快速构建
+
+```bash
+# 前置条件: E:\vcpkg 已安装 sdl2/sdl2-mixer/sdl2-ttf (x64-windows)
+cmake -B build -DCMAKE_TOOLCHAIN_FILE=E:/vcpkg/scripts/buildsystems/vcpkg.cmake -G "Visual Studio 17 2022" -A x64
+cmake --build build --config Release --target RetroFPS
+# 游戏位于: build/Release/RetroFPS.exe
+
+# 单元测试
+cmake .. -DBUILD_TESTS=ON  # 重新配置
+cmake --build build --config Debug --target test_vector2d test_mathaddon test_level test_particles test_config test_pickup test_purelogic
+ctest -C Debug --output-on-failure
+```
+
+### 已知修复 (2026-05-16)
+- `GameConfig.cpp`: 修复 `loadGame()` 中 dda 段 JSON key 名不匹配 (`d["ddaMaxSteps"]`→`d["maxSteps"]`, `d["ddaStepSize"]`→`d["stepSize"]`)导致的 nlohmann::type_error 崩溃
+- `CMakeLists.txt`: `find_package` 改为 CONFIG 优先，支持 vcpkg 集成
+- `启动游戏.bat`: 增加 Release/Debug 自动检测
 
 ## 配置索引
 

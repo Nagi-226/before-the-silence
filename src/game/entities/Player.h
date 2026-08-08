@@ -40,6 +40,16 @@ public:
     static constexpr float LOOK_SENSITIVITY = 0.03f;
     static constexpr float MAX_LOOK_OFFSET = 30.0f;
 
+    // v0.4.4 武器模型动画
+    int weaponAnimFrame = 0;           // 动画帧 [0,2]
+    float weaponAnimTimer = 0.0f;      // 帧计时
+    static constexpr int WEAPON_FRAMES = 3;
+    static constexpr float WEAPON_FRAME_DURATION = 0.06f;
+
+    // v0.4.6 游戏状态
+    enum class State { Menu, Playing, Victory, Defeat };
+    State gameState = State::Playing;
+
     static constexpr float MUZZLE_FLASH_DURATION = 0.05f;
 
     Player(Vector2D startPos)

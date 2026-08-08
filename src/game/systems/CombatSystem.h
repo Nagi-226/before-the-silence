@@ -27,8 +27,14 @@ public:
     void updateProjectiles(std::vector<std::unique_ptr<Projectile>>& projectiles,
                            Player& player, std::vector<std::unique_ptr<Enemy>>& enemies, float dT);
 
+    /// v0.4.7 弹道拖尾（上一帧位置 → 当前帧位置）
+    struct TracerLine { Vector2D from; Vector2D to; float lifetime = 0.08f; };
+    const std::vector<TracerLine>& getTracers() const { return m_tracers; }
+    void updateTracers(float dT);
+
 private:
     const WeaponConfig& m_weaponConfig;
     const PickupConfig& m_pickupConfig;
     ParticleSystem& m_particles;
+    std::vector<TracerLine> m_tracers;
 };

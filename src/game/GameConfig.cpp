@@ -129,8 +129,8 @@ void loadGame(const std::string& dir, GameplayConfig& c) {
     }
     if (j.contains("dda")) {
         auto& d = j["dda"];
-        if (d.contains("maxSteps"))  c.ddaMaxSteps = d["ddaMaxSteps"];
-        if (d.contains("stepSize"))  c.ddaStepSize = d["ddaStepSize"];
+        if (d.contains("maxSteps"))  c.ddaMaxSteps = d["maxSteps"];
+        if (d.contains("stepSize"))  c.ddaStepSize = d["stepSize"];
     }
 }
 
