@@ -1,13 +1,13 @@
 @echo off
 chcp 65001 >nul
-title Retro FPS - Godot Edition
+title Signal Lost - Godot Edition
 cd /d "%~dp0"
 
 echo.
 echo    ============================================
-echo      Retro FPS  -  Godot Remake
+echo      Signal Lost  -  Godot Remake
 echo      WASD move / Mouse aim / LMB shoot
-echo      R reload / 1-2 switch weapon / ESC menu
+echo      R reload / Q or Wheel switch weapon / ESC menu
 echo    ============================================
 echo.
 
