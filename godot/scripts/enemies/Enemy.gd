@@ -52,8 +52,8 @@ func _ready() -> void:
 	if template_id < GameData.enemy_weapon_cfg.size():
 		var w: Dictionary = GameData.enemy_weapon_cfg[template_id]
 		fire_damage = int(w.get("damage", 1))
-		# C++ 语义: fireRate 为每秒射击数；原型期 ×0.25 放缓以便手感验证
-		fire_interval = 4.0 / float(w.get("fireRate", 1.0))
+		# C++ 语义: fireRate 为每秒射击数, cooldown = 1/fireRate (PureLogic.h)
+		fire_interval = 1.0 / float(w.get("fireRate", 1.0))
 		bullet_speed = float(w.get("bulletSpeed", 8.0)) * WorldConst.CELL
 
 
