@@ -100,6 +100,10 @@ func _unhandled_input(event: InputEvent) -> void:
 	elif state == "play":
 		if event is InputEventMouseMotion:
 			player.apply_look(event.relative)
+		elif event.is_action_pressed("weapon_switch") or event.is_action_pressed("weapon_next"):
+			player.cycle_weapon(1)
+		elif event.is_action_pressed("weapon_prev"):
+			player.cycle_weapon(-1)
 		elif event.is_action_pressed("ui_cancel"):
 			_open_pause()
 	elif state == "ended":

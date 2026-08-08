@@ -5,6 +5,7 @@ extends Node
 var player_cfg := {}
 var weapons_cfg := []
 var weapons_shared_reserve := 90
+var weapon_pickup_spawns := []  # [{weapon, map, x, y}] 场景内武器拾取点
 var enemy_weapon_cfg := []
 var enemies_cfg := {}
 var pickups_cfg := {}
@@ -30,6 +31,7 @@ func _ready() -> void:
 	var weapons := _load_json(CFG_DIR + "weapons.json")
 	weapons_cfg = weapons.get("weapons", [])
 	weapons_shared_reserve = int(weapons.get("sharedReserve", 90))
+	weapon_pickup_spawns = weapons.get("pickupSpawns", [])
 	enemy_weapon_cfg = weapons.get("enemyTemplates", [])
 	enemies_cfg = _load_json(CFG_DIR + "enemies.json")
 	pickups_cfg = _load_json(CFG_DIR + "pickups.json")
@@ -73,6 +75,7 @@ func _load_sounds() -> void:
 		"UpgradeHealth": "res://assets/sounds/Upgrade.ogg",
 		"UpgradeAmmo": "res://assets/sounds/Upgrade.ogg",
 		"UpgradeSpeed": "res://assets/sounds/Energy Orb.ogg",
+		"WeaponPickup": "res://assets/sounds/Energy Orb.ogg",
 	}
 	for key in mapping:
 		var stream: Variant = load(mapping[key])
@@ -119,8 +122,7 @@ func _register_actions() -> void:
 		"move_left": KEY_A,
 		"move_right": KEY_D,
 		"reload": KEY_R,
-		"weapon_1": KEY_1,
-		"weapon_2": KEY_2,
+		"weapon_switch": KEY_Q,
 	}
 	for action in key_actions:
 		if not InputMap.has_action(action):
@@ -128,6 +130,16 @@ func _register_actions() -> void:
 		var ev := InputEventKey.new()
 		ev.physical_keycode = key_actions[action]
 		InputMap.action_add_event(action, ev)
+	var wheel_actions := {
+		"weapon_next": MOUSE_BUTTON_WHEEL_UP,
+		"weapon_prev": MOUSE_BUTTON_WHEEL_DOWN,
+	}
+	for action in wheel_actions:
+		if not InputMap.has_action(action):
+			InputMap.add_action(action)
+		var wv := InputEventMouseButton.new()
+		wv.button_index = wheel_actions[action]
+		InputMap.action_add_event(action, wv)
 	if not InputMap.has_action("shoot"):
 		InputMap.add_action("shoot")
 	var mb := InputEventMouseButton.new()

@@ -1,6 +1,7 @@
 extends Node
 ## SmokeTest — headless 端到端自检（可长期保留作回归测试）
-## 覆盖: 世界生成 / 金币拾取 / 子弹命中敌人 / 弹药消耗 / 终点旗通关判定
+## 覆盖: 世界生成 / 武器持有模型 / 武器拾取获得 / Q+滚轮循环切换 /
+##       金币拾取 / 子弹命中敌人 / 弹药消耗 / 终点旗通关判定
 ## 运行: godot --path godot --headless res://scenes/tests/SmokeTest.tscn
 
 var _frame := 0
@@ -14,7 +15,8 @@ var _entities: Node
 var _enemy_target: Node
 var _enemy_hp_before := 0
 var _ammo_before := 0
-var _weapon_test_done := false
+var _noop_test_done := false
+var _cycle_test_done := false
 
 
 func _ready() -> void:
@@ -30,15 +32,18 @@ func _process(_delta: float) -> void:
 	match _frame:
 		2: _main.dismiss_briefing()
 		5: _check_world_built()
-		6: _test_weapon_switch()
 		7: _check_weapons_cfg()
-		10: _setup_pickup()
-		45: _check_pickup()
-		50: _setup_shoot()
-		95: _check_shoot()
-		100: _setup_flag()
-		140: _check_flag()
-		145: _finish()
+		8: _test_initial_noop()
+		12: _setup_weapon_pickup()
+		25: _check_weapon_grant()
+		27: _test_cycle_switch()
+		40: _setup_pickup()
+		55: _check_pickup()
+		60: _setup_shoot()
+		105: _check_shoot()
+		110: _setup_flag()
+		150: _check_flag()
+		155: _finish()
 
 
 func _report(ok: bool, msg: String) -> void:
@@ -51,10 +56,14 @@ func _check_world_built() -> void:
 	var enemies := get_tree().get_nodes_in_group("enemies")
 	_report(enemies.size() >= 10, "敌人数量: %d (期望 >= 10)" % enemies.size())
 	var pickup_count := 0
+	var has_weapon_pickup := false
 	for c in _entities.get_children():
 		if "symbol" in c:
 			pickup_count += 1
+			if c.symbol == "W":
+				has_weapon_pickup = true
 	_report(pickup_count >= 20, "拾取物数量: %d (期望 >= 20)" % pickup_count)
+	_report(has_weapon_pickup, "冲锋枪拾取物已按配置生成")
 	_report(get_tree().get_first_node_in_group("player") != null, "玩家节点就绪")
 
 
@@ -74,20 +83,29 @@ func _key_up(key: int) -> void:
 	Input.parse_input_event(up)
 
 
-## 按住式注入 + 物理帧等待: headless 渲染帧远快于物理步进，
-## down/up 同一冲刷周期内注入会让物理帧观察不到按下状态
-func _test_weapon_switch() -> void:
-	_key_down(KEY_2)
+func _wheel(button: int) -> void:
+	var down := InputEventMouseButton.new()
+	down.button_index = button
+	down.pressed = true
+	down.position = Vector2(1, 1)
+	Input.parse_input_event(down)
+	var up := InputEventMouseButton.new()
+	up.button_index = button
+	up.pressed = false
+	up.position = Vector2(1, 1)
+	Input.parse_input_event(up)
+
+
+## 事件驱动切换: parse_input_event → Main._unhandled_input → cycle_weapon。
+## 注入后等待冲刷与物理帧，确保事件已派发
+func _test_initial_noop() -> void:
+	_key_down(KEY_Q)
+	_key_up(KEY_Q)
 	await get_tree().physics_frame
 	await get_tree().physics_frame
-	_report(_player.weapon_index == 1, "按 2 切换到冲锋枪 (index=%d)" % _player.weapon_index)
-	_key_up(KEY_2)
-	_key_down(KEY_1)
-	await get_tree().physics_frame
-	await get_tree().physics_frame
-	_report(_player.weapon_index == 0, "按 1 切回手枪 (index=%d)" % _player.weapon_index)
-	_key_up(KEY_1)
-	_weapon_test_done = true
+	_report(_player.weapon_index == 0 and not _player.weapon_owned[1],
+		"仅持手枪时 Q 不切换 (index=%d)" % _player.weapon_index)
+	_noop_test_done = true
 
 
 func _check_weapons_cfg() -> void:
@@ -99,7 +117,45 @@ func _check_weapons_cfg() -> void:
 			"手枪: 半自动 弹匣 %d (期望 20)" % int(pistol["clipSize"]))
 		_report(smg["auto"] == true and str(smg["displayName"]) == "冲锋枪",
 			"冲锋枪: 全自动就绪")
+	_report(_player.weapon_owned.size() == 2 and _player.weapon_owned[0] and not _player.weapon_owned[1],
+		"初始持有模型: 仅手枪")
 	_report(_player.health_max == 100, "玩家血量上限: %d (期望 100)" % _player.health_max)
+
+
+func _setup_weapon_pickup() -> void:
+	for c in _entities.get_children():
+		if "symbol" in c and c.symbol == "W":
+			_player.global_position = c.global_position
+			_report(true, "已传送至冲锋枪拾取物 @ %s" % c.global_position)
+			return
+	_report(false, "未找到冲锋枪拾取物")
+
+
+func _check_weapon_grant() -> void:
+	_report(_player.weapon_owned.size() == 2 and _player.weapon_owned[1],
+		"拾取后持有冲锋枪")
+	_report(_player.weapon_index == 1, "拾取后自动切换到冲锋枪 (index=%d)" % _player.weapon_index)
+	_report(_player.ammo_clip == 30, "冲锋枪弹匣补满: %d (期望 30)" % _player.ammo_clip)
+
+
+func _test_cycle_switch() -> void:
+	if _player.weapon_index != 1:  # 前置失败则跳过，避免误报
+		_cycle_test_done = true
+		return
+	_key_down(KEY_Q)
+	_key_up(KEY_Q)
+	await get_tree().physics_frame
+	await get_tree().physics_frame
+	_report(_player.weapon_index == 0, "Q 切换到手枪 (index=%d)" % _player.weapon_index)
+	_wheel(MOUSE_BUTTON_WHEEL_UP)
+	await get_tree().physics_frame
+	await get_tree().physics_frame
+	_report(_player.weapon_index == 1, "滚轮上切换到冲锋枪 (index=%d)" % _player.weapon_index)
+	_wheel(MOUSE_BUTTON_WHEEL_DOWN)
+	await get_tree().physics_frame
+	await get_tree().physics_frame
+	_report(_player.weapon_index == 0, "滚轮下切回手枪 (index=%d)" % _player.weapon_index)
+	_cycle_test_done = true
 
 
 func _setup_pickup() -> void:
@@ -179,7 +235,7 @@ func _check_flag() -> void:
 
 
 func _finish() -> void:
-	while not _weapon_test_done:
+	while not _noop_test_done or not _cycle_test_done:
 		await get_tree().physics_frame
 	print("[SMOKE] 结果: %s" % ("全部通过" if not _fail else "存在失败项"))
 	get_tree().quit(1 if _fail else 0)

@@ -1,7 +1,8 @@
 extends CharacterBody3D
 ## Player — 移动/视角/射击/换弹/拾取效果/多武器切换
 ## 数值全部来自 GameData（与 C++ 版 JSON 同源），单位换算经 WorldConst.CELL
-## 武器规则: 手枪半自动 / 冲锋枪全自动，1/2 键切换；备弹为共享池（同种手枪弹药）
+## 武器规则: 初始仅持手枪，冲锋枪需在场景内拾取获得；
+##           Q/鼠标滚轮在已持有武器间循环切换；备弹为共享池（同种手枪弹药）
 
 signal ammo_changed(clip: int, reserve: int)
 signal health_changed(current: int, max_hp: int)
@@ -34,11 +35,11 @@ var ammo_reserve := 90
 ## bulletSpeed/bulletRange/reloadTime/spawnOffset/viewmodel
 var weapons: Array[Dictionary] = []
 var weapon_index := 0
+var weapon_owned: Array = []  # 与 weapons 平行；未持有的武器不参与切换循环
 
 var _fire_cooldown := 0.0
 var _reloading := 0.0
 var _base_sens := 0.0024
-var _prev_weapon_key := [false, false]  # 1/2 键边沿检测状态（帧率无关的按下沿判定）
 var _prev_shoot := false  # 射击键边沿检测（半自动模式用）
 var _prev_reload := false  # 换弹键边沿检测
 
@@ -70,8 +71,8 @@ func _ready() -> void:
 
 func _build_weapons() -> void:
 	ammo_reserve = GameData.weapons_shared_reserve
-	for cfg in GameData.weapons_cfg:
-		var cd: Dictionary = cfg
+	for i in GameData.weapons_cfg.size():
+		var cd: Dictionary = GameData.weapons_cfg[i]
 		weapons.append({
 			"id": str(cd.get("id", "")),
 			"displayName": str(cd.get("displayName", "武器")),
@@ -86,6 +87,7 @@ func _build_weapons() -> void:
 			"spawnOffset": float(cd.get("spawnOffset", 0.5)) * WorldConst.CELL,
 			"viewmodel": str(cd.get("viewmodel", "Weapon.png")),
 		})
+		weapon_owned.append(bool(cd.get("owned", i == 0)))
 	if weapons.is_empty():  # 配置缺失兜底，保证可运行
 		weapons.append({
 			"id": "pistol", "displayName": "手枪", "auto": false,
@@ -93,6 +95,7 @@ func _build_weapons() -> void:
 			"bulletSpeed": 30.0, "bulletRange": 20.0, "reloadTime": 2.0,
 			"spawnOffset": 1.0, "viewmodel": "Weapon.png",
 		})
+		weapon_owned.append(true)
 
 
 func _physics_process(delta: float) -> void:
@@ -104,7 +107,6 @@ func _physics_process(delta: float) -> void:
 	move_and_slide()
 
 	_fire_cooldown = maxf(_fire_cooldown - delta, 0.0)
-	_process_weapon_switch()
 	_process_reload(delta)
 	var w: Dictionary = weapons[weapon_index]
 	var shoot_pressed := Input.is_action_pressed("shoot")
@@ -124,20 +126,46 @@ func apply_look(relative: Vector2) -> void:
 	head.rotation.x = clampf(head.rotation.x, -lim, lim)
 
 
-func _process_weapon_switch() -> void:
-	var keys := [Input.is_action_pressed("weapon_1"), Input.is_action_pressed("weapon_2")]
-	var target := -1
-	for i in 2:
-		if keys[i] and not _prev_weapon_key[i]:
-			target = i
-	_prev_weapon_key = keys
-	if target < 0 or target >= weapons.size() or target == weapon_index:
+## 在已持有武器间循环切换（dir=±1）。事件驱动：Main 转发 Q/滚轮输入
+func cycle_weapon(dir: int) -> void:
+	var owned_idx: Array = []
+	for i in weapons.size():
+		if weapon_owned[i]:
+			owned_idx.append(i)
+	if owned_idx.size() < 2:
 		return
-	weapon_index = target
+	var cur := owned_idx.find(weapon_index)
+	if cur < 0:
+		cur = 0
+	var next: int = owned_idx[(cur + dir + owned_idx.size()) % owned_idx.size()]
+	_switch_to(next)
+
+
+func _switch_to(idx: int) -> void:
+	if idx < 0 or idx >= weapons.size() or idx == weapon_index:
+		return
+	weapon_index = idx
 	_reloading = 0.0  # 切枪打断换弹（备弹尚未转移，无副作用）
 	_fire_cooldown = maxf(_fire_cooldown, WEAPON_SWITCH_DELAY)
 	weapon_changed.emit(weapon_display_name(), weapon_viewmodel())
 	ammo_changed.emit(ammo_clip, ammo_reserve)
+
+
+## 武器拾取: 首拾获得该武器（弹匣补满并自动切换，返回 true）；
+## 重复拾取转为备弹（weaponPickupAmmo），返回 false
+func grant_weapon(id: String) -> bool:
+	for i in weapons.size():
+		if str(weapons[i]["id"]) != id:
+			continue
+		if weapon_owned[i]:
+			var amounts: Dictionary = GameData.pickups_cfg.get("amounts", {})
+			add_reserve(int(amounts.get("weaponPickupAmmo", 30)))
+			return false
+		weapon_owned[i] = true
+		weapons[i]["ammoClip"] = int(weapons[i]["clipSize"])
+		_switch_to(i)
+		return true
+	return false
 
 
 func _process_reload(delta: float) -> void:

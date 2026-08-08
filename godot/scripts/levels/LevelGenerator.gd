@@ -56,11 +56,43 @@ func build(map_index: int, entity_root: Node3D) -> Vector3:
 	_build_walls(buckets)
 	_build_floor_ceiling()
 	_build_collision(buckets)
+	_spawn_weapon_pickups(map_index, entity_root)
 	return Vector3(spawn.x, 0.65, spawn.z)
 
 
 func is_wall(x: int, y: int) -> bool:
 	return wall_cells.has(Vector2i(x, y))
+
+
+## 按 weapons.json 的 pickupSpawns 生成武器拾取物（符号 "W"），
+## 不进入与 C++ 同源的地图数据
+func _spawn_weapon_pickups(map_index: int, entity_root: Node3D) -> void:
+	for entry in GameData.weapon_pickup_spawns:
+		var ed: Dictionary = entry
+		if int(ed.get("map", -1)) != map_index:
+			continue
+		var cell := _find_floor(int(ed.get("x", 0)), int(ed.get("y", 0)))
+		if cell == Vector2i(-1, -1):
+			push_warning("武器拾取点无有效地砖: map%d (%d,%d)" % [map_index, int(ed.get("x", 0)), int(ed.get("y", 0))])
+			continue
+		var pickup: Node3D = PickupScene.instantiate()
+		pickup.position = _cell_center(cell.x, cell.y)
+		pickup.symbol = "W"
+		entity_root.add_child(pickup)
+
+
+## 目标格是地板则直接返回；否则按环向外搜索就近地板（配置容错）
+func _find_floor(x: int, y: int) -> Vector2i:
+	if not is_wall(x, y):
+		return Vector2i(x, y)
+	for r in range(1, 5):
+		for dy in range(-r, r + 1):
+			for dx in range(-r, r + 1):
+				if maxi(absi(dx), absi(dy)) != r:
+					continue
+				if not is_wall(x + dx, y + dy):
+					return Vector2i(x + dx, y + dy)
+	return Vector2i(-1, -1)
 
 
 func _cell_center(x: int, y: int) -> Vector3:
