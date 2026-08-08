@@ -1,0 +1,19 @@
+[remap]
+
+importer="oggvorbisstr"
+type="AudioStreamOggVorbis"
+uid="uid://bjhwh7ev2mclc"
+path="res://.godot/imported/Energy Orb.ogg-803b549b1dc8db7c78b0b80aa689d178.oggvorbisstr"
+
+[deps]
+
+source_file="res://assets/sounds/Energy Orb.ogg"
+dest_files=["res://.godot/imported/Energy Orb.ogg-803b549b1dc8db7c78b0b80aa689d178.oggvorbisstr"]
+
+[params]
+
+loop=false
+loop_offset=0
+bpm=0
+beat_count=0
+bar_beats=4

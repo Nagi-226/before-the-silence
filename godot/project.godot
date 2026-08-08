@@ -1,0 +1,31 @@
+; Engine configuration file.
+; Retro FPS — Godot 重制版（路线 B：真 3D 几何 + 复古呈现层）
+; 数据源与 C++ 版保持一致：assets/config/*.json + LevelData 地图
+
+config_version=5
+
+[application]
+
+config/name="RetroFPS Godot"
+run/main_scene="res://scenes/main/Main.tscn"
+config/features=PackedStringArray("4.6", "Forward Plus")
+
+[autoload]
+
+GameData="*res://scripts/autoload/GameData.gd"
+
+[display]
+
+window/size/viewport_width=960
+window/size/viewport_height=540
+window/stretch/mode="canvas_items"
+window/stretch/aspect="keep"
+
+[physics]
+
+common/enable_pause_aware_picking=true
+
+[rendering]
+
+textures/canvas_textures/default_texture_filter=0
+environment/defaults/default_clear_color=Color(0.04, 0.045, 0.07, 1)

@@ -32,3 +32,8 @@ dist-*/
 # Temp
 *.tmp
 *.log
+
+# Godot
+.godot/
+export/
+*.translation
