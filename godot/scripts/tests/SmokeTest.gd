@@ -27,6 +27,7 @@ func _ready() -> void:
 func _process(_delta: float) -> void:
 	_frame += 1
 	match _frame:
+		2: _main.dismiss_briefing()
 		5: _check_world_built()
 		10: _setup_pickup()
 		45: _check_pickup()

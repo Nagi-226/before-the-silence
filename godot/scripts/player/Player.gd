@@ -7,6 +7,9 @@ signal health_changed(current: int, max_hp: int)
 signal coins_changed(amount: int)
 signal hurt
 signal died
+signal fired
+signal reload_started
+signal reload_finished
 
 const ProjectileScene := preload("res://scenes/weapons/Projectile.tscn")
 
@@ -34,6 +37,7 @@ var reload_time := 2.0
 
 var _fire_cooldown := 0.0
 var _reloading := 0.0
+var _base_sens := 0.0024
 
 
 func _ready() -> void:
@@ -42,6 +46,7 @@ func _ready() -> void:
 	var wcfg := GameData.weapon_cfg
 	move_speed = float(pcfg.get("moveSpeed", 7.0)) * WorldConst.CELL
 	mouse_sens = float(pcfg.get("look", {}).get("sensitivity", 0.03)) * 0.08
+	_base_sens = mouse_sens
 	health_max = int(pcfg.get("baseHealth", 20))
 	health_cur = health_max
 	ammo_clip = int(wcfg.get("ammoClip", 30))
@@ -75,8 +80,9 @@ func _physics_process(delta: float) -> void:
 
 func _unhandled_input(event: InputEvent) -> void:
 	if event is InputEventMouseMotion and Input.mouse_mode == Input.MOUSE_MODE_CAPTURED:
-		rotate_y(-event.relative.x * mouse_sens)
-		head.rotate_x(-event.relative.y * mouse_sens)
+		var sens := _base_sens * Settings.sensitivity
+		rotate_y(-event.relative.x * sens)
+		head.rotate_x(-event.relative.y * sens)
 		var lim := deg_to_rad(WorldConst.PITCH_LIMIT_DEG)
 		head.rotation.x = clampf(head.rotation.x, -lim, lim)
 
@@ -90,8 +96,10 @@ func _process_reload(delta: float) -> void:
 			ammo_clip += take
 			ammo_reserve -= take
 			ammo_changed.emit(ammo_clip, ammo_reserve)
+			reload_finished.emit()
 	elif Input.is_action_just_pressed("reload") and ammo_clip < clip_size and ammo_reserve > 0:
 		_reloading = reload_time
+		reload_started.emit()
 
 
 func _shoot() -> void:
@@ -100,9 +108,11 @@ func _shoot() -> void:
 	if ammo_clip <= 0:
 		if ammo_reserve > 0:
 			_reloading = reload_time
+			reload_started.emit()
 		return
 	ammo_clip -= 1
 	_fire_cooldown = fire_interval
+	fired.emit()
 	var proj: Node3D = ProjectileScene.instantiate()
 	proj.from_player = true
 	proj.damage = fire_damage

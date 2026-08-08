@@ -2,6 +2,8 @@ extends Area3D
 ## Pickup — 六种拾取物，符号语义与 C++ 版一致
 ## H=生命 C=金币 A=弹药  h/a/w=升级(消耗金币)
 
+signal collected(symbol: String)
+
 @onready var sprite: Sprite3D = $Sprite3D
 
 var symbol := "C"
@@ -26,6 +28,7 @@ const SOUND_KEYS := {
 
 
 func _ready() -> void:
+	add_to_group("pickups")
 	var tex_path: String = "res://assets/sprites/" + TEXTURES.get(symbol, "Coin.png")
 	if ResourceLoader.exists(tex_path):
 		sprite.texture = load(tex_path)
@@ -60,4 +63,5 @@ func _on_body_entered(body: Node3D) -> void:
 			if not body.try_upgrade("Speed"):
 				return
 	GameData.play_pickup_sound(SOUND_KEYS.get(type_name, "Coin"))
+	collected.emit(symbol)
 	queue_free()

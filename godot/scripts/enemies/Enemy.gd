@@ -2,6 +2,10 @@ extends CharacterBody3D
 ## Enemy — 三种敌人共用，按 template_id 从 enemies.json 取数值
 ## AI: 侦测范围内追踪玩家，进入攻击范围停下开火（对应 C++ EnemyAISystem 简化版）
 
+signal died
+signal hurt
+signal fired
+
 const ProjectileScene := preload("res://scenes/weapons/Projectile.tscn")
 
 const PIXEL_SIZES := [0.09, 0.115, 0.15]  # 小/中/大 体型
@@ -80,6 +84,7 @@ func _physics_process(delta: float) -> void:
 
 
 func _shoot_at(player: Node3D) -> void:
+	fired.emit()
 	var proj: Node3D = ProjectileScene.instantiate()
 	proj.from_player = false
 	proj.damage = fire_damage
@@ -98,7 +103,10 @@ func take_damage(amount: int) -> void:
 	sprite.modulate = Color(4.0, 4.0, 4.0)  # 受击白闪
 	flash_timer.start(float(GameData.enemies_cfg.get("feedback", {}).get("hurtFlashTime", 0.2)))
 	if health <= 0:
+		died.emit()
 		queue_free()
+	else:
+		hurt.emit()
 
 
 func _on_flash_timer_timeout() -> void:

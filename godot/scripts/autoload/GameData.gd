@@ -8,12 +8,20 @@ var enemy_weapon_cfg := []
 var enemies_cfg := {}
 var pickups_cfg := {}
 var game_cfg := {}
+var narrative_cfg := {}
 
 var pickup_sounds := {}
+var sfx := {}
 var _sfx_players: Array[AudioStreamPlayer] = []
 var _sfx_next := 0
 
 const CFG_DIR := "res://assets/config/"
+
+const SFX_NAMES := [
+	"Shoot", "EnemyShoot", "ReloadStart", "ReloadEnd",
+	"EnemyHurt", "EnemyDie", "PlayerHurt",
+	"UIMove", "UISelect", "Victory", "Defeat",
+]
 
 
 func _ready() -> void:
@@ -24,13 +32,24 @@ func _ready() -> void:
 	enemies_cfg = _load_json(CFG_DIR + "enemies.json")
 	pickups_cfg = _load_json(CFG_DIR + "pickups.json")
 	game_cfg = _load_json(CFG_DIR + "game.json")
+	narrative_cfg = _load_json(CFG_DIR + "narrative.json")
+	_setup_sfx_bus()
 	_load_sounds()
+	_load_sfx()
 	_register_actions()
-	for i in 4:
+	for i in 8:
 		var p := AudioStreamPlayer.new()
-		p.bus = "Master"
+		p.bus = "SFX"
 		add_child(p)
 		_sfx_players.append(p)
+
+
+func _setup_sfx_bus() -> void:
+	if AudioServer.get_bus_index("SFX") == -1:
+		var idx := AudioServer.bus_count
+		AudioServer.add_bus(idx)
+		AudioServer.set_bus_name(idx, "SFX")
+		AudioServer.set_bus_send(idx, "Master")
 
 
 func _load_json(path: String) -> Dictionary:
@@ -63,6 +82,24 @@ func play_pickup_sound(type_name: String) -> void:
 	var stream: AudioStream = pickup_sounds.get(type_name)
 	if stream == null:
 		return
+	_play_on_pool(stream)
+
+
+func _load_sfx() -> void:
+	for n in SFX_NAMES:
+		var path := "res://assets/sounds/%s.wav" % n
+		if ResourceLoader.exists(path):
+			sfx[n] = load(path)
+
+
+func play_sfx(sfx_name: String) -> void:
+	var stream: AudioStream = sfx.get(sfx_name)
+	if stream == null:
+		return
+	_play_on_pool(stream)
+
+
+func _play_on_pool(stream: AudioStream) -> void:
 	var p := _sfx_players[_sfx_next]
 	_sfx_next = (_sfx_next + 1) % _sfx_players.size()
 	p.stream = stream
