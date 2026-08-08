@@ -78,13 +78,14 @@ func _physics_process(delta: float) -> void:
 		_shoot()
 
 
-func _unhandled_input(event: InputEvent) -> void:
-	if event is InputEventMouseMotion and Input.mouse_mode == Input.MOUSE_MODE_CAPTURED:
-		var sens := _base_sens * Settings.sensitivity
-		rotate_y(-event.relative.x * sens)
-		head.rotate_x(-event.relative.y * sens)
-		var lim := deg_to_rad(WorldConst.PITCH_LIMIT_DEG)
-		head.rotation.x = clampf(head.rotation.x, -lim, lim)
+func apply_look(relative: Vector2) -> void:
+	if Input.mouse_mode != Input.MOUSE_MODE_CAPTURED:
+		return
+	var sens := _base_sens * Settings.sensitivity
+	rotate_y(-relative.x * sens)
+	head.rotate_x(-relative.y * sens)
+	var lim := deg_to_rad(WorldConst.PITCH_LIMIT_DEG)
+	head.rotation.x = clampf(head.rotation.x, -lim, lim)
 
 
 func _process_reload(delta: float) -> void:

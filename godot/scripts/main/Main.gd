@@ -92,7 +92,9 @@ func _unhandled_input(event: InputEvent) -> void:
 				or (event is InputEventMouseButton and event.pressed):
 			dismiss_briefing()
 	elif state == "play":
-		if event.is_action_pressed("ui_cancel"):
+		if event is InputEventMouseMotion:
+			player.apply_look(event.relative)
+		elif event.is_action_pressed("ui_cancel"):
 			_open_pause()
 	elif state == "ended":
 		if event is InputEventKey and event.pressed and not event.echo:
