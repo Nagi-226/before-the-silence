@@ -40,27 +40,37 @@
   ],
 
   "upgradeComponents": {
+    "fireRateAdd": 10.0,
     "levels": [
       {
         "tier": 1,
         "weapons": {
-          "pistol": { "clipSize": 25, "damage": 40 },
-          "smg": { "clipSize": 40, "damage": 40 }
+          "pistol": { "clipSize": 25, "damage": 36 },
+          "smg": { "clipSize": 40, "damage": 36 }
         }
       },
       {
         "tier": 2,
         "weapons": {
-          "pistol": { "clipSize": 30, "damage": 50 },
-          "smg": { "clipSize": 50, "damage": 50 }
+          "pistol": { "clipSize": 30, "damage": 45 },
+          "smg": { "clipSize": 50, "damage": 45 }
+        }
+      },
+      {
+        "tier": 3,
+        "weapons": {
+          "pistol": { "clipSize": 33, "damage": 55, "auto": true },
+          "smg": { "clipSize": 60, "damage": 55 }
         }
       }
     ],
     "spawns": [
       { "tier": 1, "map": 0, "x": 22, "y": 35 },
-      { "tier": 2, "map": 0, "x": 25, "y": 35 },
+      { "tier": 2, "map": 0, "x": 70, "y": 10 },
+      { "tier": 3, "map": 0, "x": 108, "y": 46 },
       { "tier": 1, "map": 1, "x": 16, "y": 10 },
-      { "tier": 2, "map": 1, "x": 19, "y": 10 }
+      { "tier": 2, "map": 1, "x": 60, "y": 25 },
+      { "tier": 3, "map": 1, "x": 148, "y": 45 }
     ]
   },
 

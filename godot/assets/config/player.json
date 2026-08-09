@@ -2,6 +2,8 @@
   "moveSpeed": 7.0,
   "turnSpeed": 2.0,
   "baseHealth": 100,
+  "baseArmor": 0,
+  "armorMax": 100,
 
   "feedback": {
     "hurtDuration": 0.3,

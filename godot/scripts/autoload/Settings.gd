@@ -49,9 +49,14 @@ func apply() -> void:
 	var sfx_idx := AudioServer.get_bus_index("SFX")
 	if sfx_idx != -1:
 		AudioServer.set_bus_volume_db(sfx_idx, linear_to_db(sfx_volume))
-	DisplayServer.window_set_mode(
-		DisplayServer.WINDOW_MODE_FULLSCREEN if fullscreen
-		else DisplayServer.WINDOW_MODE_WINDOWED)
+	# 只在全屏状态需要切换时动窗口模式：音量滑条拖动也会走 apply()，
+	# 无条件 window_set_mode(WINDOWED) 会把用户手动最大化的窗口打回窗口态
+	var cur := DisplayServer.window_get_mode()
+	if fullscreen:
+		if cur != DisplayServer.WINDOW_MODE_FULLSCREEN:
+			DisplayServer.window_set_mode(DisplayServer.WINDOW_MODE_FULLSCREEN)
+	elif cur == DisplayServer.WINDOW_MODE_FULLSCREEN:
+		DisplayServer.window_set_mode(DisplayServer.WINDOW_MODE_WINDOWED)
 	settings_changed.emit()
 
 

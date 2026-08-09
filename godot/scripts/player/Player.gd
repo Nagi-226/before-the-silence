@@ -6,9 +6,11 @@ extends CharacterBody3D
 
 signal ammo_changed(clip: int, reserve: int)
 signal health_changed(current: int, max_hp: int)
+signal armor_changed(current: int, max_armor: int)
 signal coins_changed(amount: int)
 signal weapon_changed(weapon_name: String, viewmodel: String)
 signal component_rejected(needed_tier: int)
+signal pickup_hint(text: String)
 signal hurt
 signal died
 signal fired
@@ -29,6 +31,8 @@ var gravity: float = ProjectSettings.get_setting("physics/3d/default_gravity", 9
 
 var health_max := 100
 var health_cur := 100
+var armor_max := 100
+var armor_cur := 0  # 防护服能量：先于生命承受伤害（1:1 吸收）
 var coins := 0
 var ammo_reserve := 90
 
@@ -63,10 +67,13 @@ func _ready() -> void:
 	_base_sens = mouse_sens
 	health_max = int(pcfg.get("baseHealth", 100))
 	health_cur = health_max
+	armor_max = int(pcfg.get("armorMax", 100))
+	armor_cur = int(pcfg.get("baseArmor", 0))
 	_build_weapons()
 	Input.mouse_mode = Input.MOUSE_MODE_CAPTURED
 	ammo_changed.emit(ammo_clip, ammo_reserve)
 	health_changed.emit(health_cur, health_max)
+	armor_changed.emit(armor_cur, armor_max)
 	coins_changed.emit(coins)
 	weapon_changed.emit(weapon_display_name(), weapon_viewmodel())
 
@@ -170,10 +177,10 @@ func grant_weapon(id: String) -> bool:
 	return false
 
 
-## 通用武器升级组件: tier=1/2 需按顺序获取（二级需先完成一级改装）。
+## 通用武器升级组件: tier=1/2/3 需按顺序获取，三级为改装上限。
 ## 生效则按 weapons.json upgradeComponents.levels 表改写全部武器的
-## clipSize/damage 并返回 true；顺序不符则发 component_rejected 并返回 false
-## （拾取物保留，玩家可稍后回来取）
+## clipSize/damage/auto 并返回 true；顺序不符或满级则发 component_rejected
+## 并返回 false（拾取物保留原地，玩家可稍后回来取）
 func apply_weapon_component(tier: int) -> bool:
 	if tier != weapon_tier + 1:
 		component_rejected.emit(weapon_tier + 1)
@@ -182,13 +189,27 @@ func apply_weapon_component(tier: int) -> bool:
 		return false
 	weapon_tier = tier
 	var table: Dictionary = (GameData.component_levels[tier - 1] as Dictionary).get("weapons", {})
+	var rate_add := GameData.component_fire_rate_add
 	for w in weapons:
 		var entry: Variant = table.get(str(w["id"]))
 		if entry is Dictionary:
 			w["clipSize"] = int(entry.get("clipSize", w["clipSize"]))
 			w["damage"] = int(entry.get("damage", w["damage"]))
+			w["auto"] = bool(entry.get("auto", w["auto"]))
+		if rate_add > 0.0:
+			w["fireInterval"] = 1.0 / (1.0 / float(w["fireInterval"]) + rate_add)
 	ammo_changed.emit(ammo_clip, ammo_reserve)
 	return true
+
+
+## 弹匣绝对上限: 组件等级表最高阶的 clipSize（缺配时不设限）
+func clip_cap_for(weapon_id: String) -> int:
+	var cap := 999
+	for lv in GameData.component_levels:
+		var entry: Variant = (lv as Dictionary).get("weapons", {}).get(weapon_id)
+		if entry is Dictionary and entry.has("clipSize"):
+			cap = int(entry["clipSize"])
+	return cap
 
 
 func _process_reload(delta: float) -> void:
@@ -235,6 +256,12 @@ func _shoot() -> void:
 func take_damage(amount: int) -> void:
 	if health_cur <= 0:
 		return
+	# 防护服能量先于生命承受伤害（1:1 吸收，溢出部分扣生命）
+	if armor_cur > 0:
+		var absorbed := mini(armor_cur, amount)
+		armor_cur -= absorbed
+		amount -= absorbed
+		armor_changed.emit(armor_cur, armor_max)
 	health_cur = maxi(health_cur - amount, 0)
 	hurt.emit()
 	health_changed.emit(health_cur, health_max)
@@ -245,6 +272,25 @@ func take_damage(amount: int) -> void:
 func heal(amount: int) -> void:
 	health_cur = mini(health_cur + amount, health_max)
 	health_changed.emit(health_cur, health_max)
+
+
+## 急救包拾取: 生命已满时拒收（拾取物保留原地，避免浪费地图资源）
+func try_heal(amount: int) -> bool:
+	if health_cur >= health_max:
+		pickup_hint.emit("生命值已满")
+		return false
+	heal(amount)
+	return true
+
+
+## 防护服能量补给拾取: 满能量时拒收（同急救包规则）
+func try_add_armor(amount: int) -> bool:
+	if armor_cur >= armor_max:
+		pickup_hint.emit("防护服能量已满")
+		return false
+	armor_cur = mini(armor_cur + amount, armor_max)
+	armor_changed.emit(armor_cur, armor_max)
+	return true
 
 
 func add_reserve(amount: int) -> void:
@@ -262,11 +308,21 @@ func weapon_viewmodel() -> String:
 
 ## 升级拾取: kind = "Health" / "Ammo" / "Speed"，消耗金币，返回是否生效
 ## Ammo/Speed 升级作用于全部武器（统一武备体系）
+## Ammo 弹匣增长钳制在组件最高阶 clipSize（33/60 顶头）；全部到顶则拒收
 func try_upgrade(kind: String) -> bool:
 	var ups: Dictionary = GameData.pickups_cfg.get("upgrades", {})
 	var cost: int = int(ups.get("cost", 10))
 	if coins < cost:
 		return false
+	if kind == "Ammo":
+		var clip_add_check := int(ups.get("ammoClipUpgrade", 5))
+		var any_growth := false
+		for w in weapons:
+			if int(w["clipSize"]) < clip_cap_for(str(w["id"])):
+				any_growth = true
+		if not any_growth:
+			pickup_hint.emit("弹匣已达改装上限，扩展弹匣保留在原地")
+			return false
 	coins -= cost
 	match kind:
 		"Health":
@@ -276,7 +332,8 @@ func try_upgrade(kind: String) -> bool:
 		"Ammo":
 			var clip_add := int(ups.get("ammoClipUpgrade", 5))
 			for w in weapons:
-				w["clipSize"] = int(w["clipSize"]) + clip_add
+				var cap := clip_cap_for(str(w["id"]))
+				w["clipSize"] = mini(int(w["clipSize"]) + clip_add, cap)
 			ammo_reserve += int(ups.get("ammoReserveUpgrade", 10))
 			ammo_changed.emit(ammo_clip, ammo_reserve)
 		"Speed":

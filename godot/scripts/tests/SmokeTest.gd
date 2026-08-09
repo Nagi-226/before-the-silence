@@ -1,8 +1,9 @@
 extends Node
 ## SmokeTest — headless 端到端自检（可长期保留作回归测试）
-## 覆盖: 世界生成 / 武器持有模型 / 武器拾取获得 / Q+滚轮循环切换 /
-##       金币拾取 / 通用升级组件(顺序拦截+一二级数值) / 子弹命中敌人 /
-##       弹药消耗 / 终点旗通关判定
+## 覆盖: 世界生成(含a/w移除与防护服生成) / 武器持有模型 / 武器拾取 /
+##       Q+滚轮循环切换 / 金币拾取 / 满血拒收急救包 / 防护服充能与优先承伤 /
+##       通用升级组件(顺序拦截+一二三级数值+射速叠加+满级拒收) /
+##       子弹命中敌人 / 弹药消耗 / 终点旗通关判定
 ## 运行: godot --path godot --headless res://scenes/tests/SmokeTest.tscn
 
 var _frame := 0
@@ -19,6 +20,7 @@ var _ammo_before := 0
 var _noop_test_done := false
 var _cycle_test_done := false
 var _components_test_done := false
+var _health_test_done := false
 
 
 func _ready() -> void:
@@ -41,6 +43,7 @@ func _process(_delta: float) -> void:
 		27: _test_cycle_switch()
 		40: _setup_pickup()
 		55: _check_pickup()
+		56: _test_health_full()
 		57: _test_components()
 		85: _setup_shoot()
 		130: _check_shoot()
@@ -62,6 +65,9 @@ func _check_world_built() -> void:
 	var has_weapon_pickup := false
 	var has_comp1 := false
 	var has_comp2 := false
+	var has_comp3 := false
+	var has_armor := false
+	var legacy_count := 0  # a/w 已实机移除，不应再生成
 	for c in _entities.get_children():
 		if "symbol" in c:
 			pickup_count += 1
@@ -71,10 +77,20 @@ func _check_world_built() -> void:
 				has_comp1 = true
 			elif c.symbol == "U":
 				has_comp2 = true
+			elif c.symbol == "v":
+				has_comp3 = true
+			elif c.symbol == "e":
+				has_armor = true
+			elif c.symbol == "a" or c.symbol == "w":
+				legacy_count += 1
 	_report(pickup_count >= 20, "拾取物数量: %d (期望 >= 20)" % pickup_count)
 	_report(has_weapon_pickup, "冲锋枪拾取物已按配置生成")
-	_report(has_comp1 and has_comp2, "一/二级升级组件已按配置生成")
+	_report(has_comp1 and has_comp2 and has_comp3, "一/二/三级升级组件已按配置生成")
+	_report(has_armor, "防护服能量补给已生成（a 符号位改造）")
+	_report(legacy_count == 0, "扩展弹匣/神经加速器已实机移除 (残留=%d)" % legacy_count)
 	_report(get_tree().get_first_node_in_group("player") != null, "玩家节点就绪")
+	var mm: Node = _main.get_node("HUD").get_node_or_null("MiniMap")
+	_report(mm != null and mm.get("_wall_tex") != null, "HUD 小地图已就绪")
 
 
 func _key_down(key: int) -> void:
@@ -198,10 +214,39 @@ func _count_symbol(symbol: String) -> int:
 	return n
 
 
-## 通用升级组件端到端: 越级拦截 → 一级生效 → 二级生效。
+## 满血时急救包拒收: 拾取物保留原地（先强制满血保证确定性）；
+## 顺带验证防护服能量: 拾取 +10 充能、伤害先扣能量再扣生命
+func _test_health_full() -> void:
+	_player.health_cur = _player.health_max
+	var before := _count_symbol("H")
+	_teleport_to_symbol("H", "急救包")
+	_player.health_cur = _player.health_max  # 传送后再压一次，防敌袭干扰
+	for i in 3:
+		await get_tree().physics_frame
+	_report(_player.health_cur == _player.health_max and _count_symbol("H") == before,
+		"满血拒收急救包: HP %d/%d, 场上H=%d (期望 %d)"
+		% [_player.health_cur, _player.health_max, _count_symbol("H"), before])
+
+	_player.armor_cur = 0
+	_teleport_to_symbol("e", "防护服电池")
+	for i in 3:
+		await get_tree().physics_frame
+	_report(_player.armor_cur == 10, "防护服充能: armor=%d (期望 10)" % _player.armor_cur)
+	var hp_before: int = _player.health_cur
+	_player.take_damage(25)  # 能量 10 吸收 10，溢出 15 扣生命
+	_report(_player.armor_cur == 0 and _player.health_cur == hp_before - 15,
+		"能量优先承伤: armor=0, HP %d->%d (期望 %d)"
+		% [hp_before, _player.health_cur, hp_before - 15])
+	_health_test_done = true
+
+
+## 通用升级组件端到端: 越级拦截 → 一级 → 二级 → 三级(手枪转全自动) →
+## 满级拒收 / 弹匣到顶"a"拒收。
 ## 物理帧驱动（与 _test_cycle_switch 同法）：headless 下渲染帧与物理帧
 ## 不同步，固定帧号间隔不可靠，传送后必须等 physics_frame 让 body_entered 派发
 func _test_components() -> void:
+	while not _health_test_done:  # 串行传送，避免抢占玩家位置
+		await get_tree().physics_frame
 	# 1) 未持有一级时踩二级: 不生效且拾取物保留
 	_teleport_to_symbol("U", "二级组件")
 	for i in 4:
@@ -209,31 +254,52 @@ func _test_components() -> void:
 	_report(_player.weapon_tier == 0, "越级拾取被拦截: tier=%d (期望 0)" % _player.weapon_tier)
 	_report(_count_symbol("U") == 1, "二级组件保留在场景中 (数量=%d)" % _count_symbol("U"))
 
-	# 2) 拾取一级组件: 手枪 25发/伤害40，冲锋枪 40发/伤害40
+	# 2) 拾取一级组件: 手枪 25发/伤害36，冲锋枪 40发/伤害36，射速 10→20
 	_teleport_to_symbol("u", "一级组件")
 	for i in 4:
 		await get_tree().physics_frame
 	var pistol: Dictionary = _player.weapons[0]
 	var smg: Dictionary = _player.weapons[1]
 	_report(_player.weapon_tier == 1
-		and int(pistol["clipSize"]) == 25 and int(pistol["damage"]) == 40,
-		"一级组件生效: 手枪 tier=%d %d发/伤害%d (期望 1/25/40)"
+		and int(pistol["clipSize"]) == 25 and int(pistol["damage"]) == 36,
+		"一级组件生效: 手枪 tier=%d %d发/伤害%d (期望 1/25/36)"
 		% [_player.weapon_tier, int(pistol["clipSize"]), int(pistol["damage"])])
-	_report(int(smg["clipSize"]) == 40 and int(smg["damage"]) == 40,
-		"一级组件生效: 冲锋枪 %d发/伤害%d (期望 40/40)"
+	_report(int(smg["clipSize"]) == 40 and int(smg["damage"]) == 36,
+		"一级组件生效: 冲锋枪 %d发/伤害%d (期望 40/36)"
 		% [int(smg["clipSize"]), int(smg["damage"])])
 
-	# 3) 拾取二级组件: 手枪 30发/伤害50，冲锋枪 50发/伤害50
+	# 3) 拾取二级组件: 手枪 30发/伤害45，冲锋枪 50发/伤害45，射速 →30
 	_teleport_to_symbol("U", "二级组件")
 	for i in 4:
 		await get_tree().physics_frame
 	_report(_player.weapon_tier == 2
-		and int(pistol["clipSize"]) == 30 and int(pistol["damage"]) == 50,
-		"二级组件生效: 手枪 tier=%d %d发/伤害%d (期望 2/30/50)"
+		and int(pistol["clipSize"]) == 30 and int(pistol["damage"]) == 45,
+		"二级组件生效: 手枪 tier=%d %d发/伤害%d (期望 2/30/45)"
 		% [_player.weapon_tier, int(pistol["clipSize"]), int(pistol["damage"])])
-	_report(int(smg["clipSize"]) == 50 and int(smg["damage"]) == 50,
-		"二级组件生效: 冲锋枪 %d发/伤害%d (期望 50/50)"
+	_report(int(smg["clipSize"]) == 50 and int(smg["damage"]) == 45,
+		"二级组件生效: 冲锋枪 %d发/伤害%d (期望 50/45)"
 		% [int(smg["clipSize"]), int(smg["damage"])])
+
+	# 4) 拾取三级组件: 手枪 33发/伤害55+转全自动，冲锋枪 60发/伤害55，射速封顶 40
+	_teleport_to_symbol("v", "三级组件")
+	for i in 4:
+		await get_tree().physics_frame
+	_report(_player.weapon_tier == 3
+		and int(pistol["clipSize"]) == 33 and int(pistol["damage"]) == 55
+		and pistol["auto"] == true,
+		"三级组件生效: 手枪 tier=%d %d发/伤害%d/全自动=%s (期望 3/33/55/true)"
+		% [_player.weapon_tier, int(pistol["clipSize"]), int(pistol["damage"]), str(pistol["auto"])])
+	_report(int(smg["clipSize"]) == 60 and int(smg["damage"]) == 55,
+		"三级组件生效: 冲锋枪 %d发/伤害%d (期望 60/55)"
+		% [int(smg["clipSize"]), int(smg["damage"])])
+	var pistol_rate := 1.0 / float(pistol["fireInterval"])
+	var smg_rate := 1.0 / float(smg["fireInterval"])
+	_report(absf(pistol_rate - 40.0) < 0.01 and absf(smg_rate - 40.0) < 0.01,
+		"三阶射速封顶: 手枪%.0f/冲锋枪%.0f (期望 40/40)" % [pistol_rate, smg_rate])
+
+	# 5) 满级后再遇组件: 直接调用验证拒收（tier 不前进）
+	_report(not _player.apply_weapon_component(3) and _player.weapon_tier == 3,
+		"满级组件拒收: tier=%d (期望 3)" % _player.weapon_tier)
 	_components_test_done = true
 
 
@@ -303,7 +369,7 @@ func _check_flag() -> void:
 
 
 func _finish() -> void:
-	while not _noop_test_done or not _cycle_test_done or not _components_test_done:
+	while not _noop_test_done or not _cycle_test_done or not _components_test_done or not _health_test_done:
 		await get_tree().physics_frame
 	print("[SMOKE] 结果: %s" % ("全部通过" if not _fail else "存在失败项"))
 	get_tree().quit(1 if _fail else 0)

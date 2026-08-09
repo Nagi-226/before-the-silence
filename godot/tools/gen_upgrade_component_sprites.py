@@ -15,7 +15,8 @@ OUT_DIR = Path(__file__).resolve().parent.parent / "assets" / "sprites"
 # (文件名, 光晕色, 主体描边色, 标记竖条数)
 LEVELS = [
     ("Upgrade Component 1.png", (64, 220, 220), (120, 240, 240), 1),
-    ("Upgrade Component 2.png", (255, 150, 40), (255, 190, 90), 2),
+    ("Upgrade Component 2.png", (190, 80, 255), (225, 160, 255), 2),
+    ("Upgrade Component 3.png", (255, 190, 50), (255, 225, 130), 3),
 ]
 
 

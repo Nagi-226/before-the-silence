@@ -1,7 +1,8 @@
 extends Area3D
-## Pickup — 九种拾取物，符号语义与 C++ 版一致
-## H=生命 C=金币 A=弹药  h/a/w=升级(消耗金币)  W=武器(冲锋枪，配置生成)
-## u/U=通用武器升级组件(一级/二级，配置生成，需按顺序获取)
+## Pickup — 拾取物，符号语义与 C++ 版一致（a/w 已实机移除，a 位改生 e）
+## H=生命 C=金币 A=弹药 e=防护服能量  h=生命上限升级(消耗金币)  W=武器(冲锋枪)
+## u/U/v=通用武器升级组件(一/二/三级，配置生成，需按顺序获取)
+## 拒收规则: H 生命满 / e 能量满 / h 金币不足 / 组件越级或满级时，拾取物保留原地
 
 signal collected(symbol: String)
 
@@ -13,22 +14,24 @@ var _base_y := 0.9
 var _time := 0.0
 
 const TYPE_NAMES := {
-	"H": "Health", "C": "Coin", "A": "Ammo",
-	"h": "UpgradeHealth", "a": "UpgradeAmmo", "w": "UpgradeSpeed",
-	"W": "SMG", "u": "WeaponComp1", "U": "WeaponComp2",
+	"H": "Health", "C": "Coin", "A": "Ammo", "e": "Armor",
+	"h": "UpgradeHealth",
+	"W": "SMG", "u": "WeaponComp1", "U": "WeaponComp2", "v": "WeaponComp3",
 }
 const TEXTURES := {
-	"H": "Heart.png", "C": "Coin.png", "A": "Battery.png",
-	"h": "Upgrade Heart 10.png", "a": "Upgrade Ammo 10.png",
-	"w": "Upgrade Weapon Speed 10.png",
+	"H": "Heart.png", "C": "Coin.png", "A": "Upgrade Ammo 10.png",
+	"e": "Battery.png",
+	"h": "Upgrade Heart 10.png",
 	"W": "Weapon SMG Pickup.png",
 	"u": "Upgrade Component 1.png", "U": "Upgrade Component 2.png",
+	"v": "Upgrade Component 3.png",
 }
 const SOUND_KEYS := {
-	"Health": "Health", "Coin": "Coin", "Ammo": "Ammo",
-	"UpgradeHealth": "UpgradeHealth", "UpgradeAmmo": "UpgradeAmmo",
-	"UpgradeSpeed": "UpgradeSpeed", "SMG": "WeaponPickup",
+	"Health": "Health", "Coin": "Coin", "Ammo": "Ammo", "Armor": "Ammo",
+	"UpgradeHealth": "UpgradeHealth",
+	"SMG": "WeaponPickup",
 	"WeaponComp1": "WeaponComp", "WeaponComp2": "WeaponComp",
+	"WeaponComp3": "WeaponComp",
 }
 
 
@@ -52,21 +55,19 @@ func _on_body_entered(body: Node3D) -> void:
 	var amounts: Dictionary = GameData.pickups_cfg.get("amounts", {})
 	match type_name:
 		"Health":
-			body.heal(int(amounts.get("healAmount", 1)))
+			if not body.try_heal(int(amounts.get("healAmount", 1))):
+				return  # 生命已满，保留拾取物
 		"Ammo":
 			body.add_reserve(int(amounts.get("ammoPickup", 10)))
+		"Armor":
+			if not body.try_add_armor(int(amounts.get("armorPickup", 10))):
+				return  # 防护服能量已满，保留拾取物
 		"Coin":
 			body.coins += 1
 			body.coins_changed.emit(body.coins)
 		"UpgradeHealth":
 			if not body.try_upgrade("Health"):
 				return  # 金币不足，保留拾取物
-		"UpgradeAmmo":
-			if not body.try_upgrade("Ammo"):
-				return
-		"UpgradeSpeed":
-			if not body.try_upgrade("Speed"):
-				return
 		"SMG":
 			body.grant_weapon("smg")
 		"WeaponComp1":
@@ -74,6 +75,9 @@ func _on_body_entered(body: Node3D) -> void:
 				return  # 顺序不符（或已满级），保留拾取物
 		"WeaponComp2":
 			if not body.apply_weapon_component(2):
+				return
+		"WeaponComp3":
+			if not body.apply_weapon_component(3):
 				return
 	GameData.play_pickup_sound(SOUND_KEYS.get(type_name, "Coin"))
 	collected.emit(symbol)

@@ -1,8 +1,9 @@
 extends Node3D
 ## LevelGenerator — 从符号地图构建 3D 几何与实体
-## 对应 C++ 版 Level::setupEntities + 渲染几何，符号语义完全一致:
+## 对应 C++ 版 Level::setupEntities + 渲染几何，符号语义基于 C++ 版并有 Godot 侧演进:
 ##   X/M/S/G=墙(Brick/Metal/Stone/Grate)  P=出生  F=终点
-##   0-2=敌人(小/中/大)  H=生命 C=金币 A=弹药 h/a/w=升级
+##   0-2=敌人(小/中/大)  H=生命 C=金币 A=弹药 h=生命上限升级
+##   a→实机改生 e(防护服能量)；w(神经加速器)已移除不再生成（射速并入升级组件）
 
 signal goal_reached
 
@@ -47,11 +48,20 @@ func build(map_index: int, entity_root: Node3D) -> Vector3:
 					enemy.template_id = int(ch)
 					enemy.projectile_root = get_parent()
 					entity_root.add_child(enemy)
-				"H", "C", "A", "h", "a", "w":
+				"H", "C", "A", "h":
 					var pickup: Node3D = PickupScene.instantiate()
 					pickup.position = ground
 					pickup.symbol = ch
 					entity_root.add_child(pickup)
+				"a":
+					# 扩展弹匣已实机移除（弹匣数值并入通用升级组件），
+					# 其地图符号位改生防护服能量补给（e）
+					var armor_pickup: Node3D = PickupScene.instantiate()
+					armor_pickup.position = ground
+					armor_pickup.symbol = "e"
+					entity_root.add_child(armor_pickup)
+				"w":
+					pass  # 神经加速器已实机移除（射速并入通用升级组件）
 
 	_build_walls(buckets)
 	_build_floor_ceiling()
@@ -83,8 +93,9 @@ func _spawn_weapon_pickups(map_index: int, entity_root: Node3D) -> void:
 
 
 ## 按 weapons.json upgradeComponents.spawns 生成通用武器升级组件
-## （符号 "u"=一级 / "U"=二级），不进入与 C++ 同源的地图数据
+## （符号 "u"/"U"/"v" = 一/二/三级），不进入与 C++ 同源的地图数据
 func _spawn_upgrade_components(map_index: int, entity_root: Node3D) -> void:
+	const TIER_SYMBOLS := {1: "u", 2: "U", 3: "v"}
 	for entry in GameData.component_spawns:
 		var ed: Dictionary = entry
 		if int(ed.get("map", -1)) != map_index:
@@ -96,7 +107,7 @@ func _spawn_upgrade_components(map_index: int, entity_root: Node3D) -> void:
 			continue
 		var pickup: Node3D = PickupScene.instantiate()
 		pickup.position = _cell_center(cell.x, cell.y)
-		pickup.symbol = "u" if tier == 1 else "U"
+		pickup.symbol = str(TIER_SYMBOLS.get(tier, "u"))
 		entity_root.add_child(pickup)
 
 

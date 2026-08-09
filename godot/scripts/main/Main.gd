@@ -32,6 +32,7 @@ func _ready() -> void:
 	player.projectile_root = viewport
 	var spawn: Vector3 = level.build(map_index, entities)
 	player.global_position = spawn
+	hud.setup_minimap(level, player, entities)
 
 	_connect_player()
 	_connect_entities()
@@ -49,6 +50,7 @@ func _ready() -> void:
 func _connect_player() -> void:
 	player.ammo_changed.connect(hud.update_ammo)
 	player.health_changed.connect(hud.update_health)
+	player.armor_changed.connect(hud.update_armor)
 	player.coins_changed.connect(hud.update_coins)
 	player.weapon_changed.connect(hud.update_weapon)
 	player.hurt.connect(func():
@@ -59,14 +61,17 @@ func _connect_player() -> void:
 	player.reload_started.connect(func(): GameData.play_sfx("ReloadStart"))
 	player.reload_finished.connect(func(): GameData.play_sfx("ReloadEnd"))
 	player.component_rejected.connect(func(needed: int):
-		if needed > 2:
-			hud.show_toast("武器改装已完成（二级组件上限）")
+		const TIER_NAMES := {1: "一级", 2: "二级", 3: "三级"}
+		if needed > 3:
+			hud.show_toast("武器改装已完成（三级组件上限）")
 		else:
-			hud.show_toast("组件不兼容：需要先获得一级武器升级组件"))
+			hud.show_toast("组件不兼容：需要先获得%s武器升级组件" % TIER_NAMES.get(needed, "上一级")))
+	player.pickup_hint.connect(func(text: String): hud.show_toast(text))
 	# Player._ready 先于本函数执行，初始信号已丢失——主动同步一次 HUD
 	hud.update_weapon(player.weapon_display_name(), player.weapon_viewmodel())
 	hud.update_ammo(player.ammo_clip, player.ammo_reserve)
 	hud.update_health(player.health_cur, player.health_max)
+	hud.update_armor(player.armor_cur, player.armor_max)
 	hud.update_coins(player.coins)
 
 

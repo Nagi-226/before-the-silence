@@ -3,9 +3,12 @@ extends CanvasLayer
 ## 叙事呈现: 开局简报层 / 拾取与区域 toast / 准星敌人名 / 结算叙事与统计
 ## 中文使用系统字体 微软雅黑，避免打包 CJK 字体文件
 
+const MiniMapScript := preload("res://scripts/ui/MiniMap.gd")
+
 @onready var crosshair: TextureRect = $Crosshair
 @onready var ammo_label: Label = $AmmoLabel
 @onready var health_label: Label = $HealthLabel
+@onready var armor_label: Label = $ArmorLabel
 @onready var coin_label: Label = $CoinLabel
 @onready var hurt_rect: ColorRect = $HurtRect
 @onready var weapon_rect: TextureRect = $WeaponRect
@@ -30,7 +33,7 @@ func _ready() -> void:
 	process_mode = Node.PROCESS_MODE_ALWAYS
 	var font := SystemFont.new()
 	font.font_names = PackedStringArray(["Microsoft YaHei", "SimHei", "sans-serif"])
-	for label in [ammo_label, health_label, coin_label, end_title, end_hint]:
+	for label in [ammo_label, health_label, armor_label, coin_label, end_title, end_hint]:
 		label.add_theme_font_override("font", font)
 	_build_narrative_ui()
 
@@ -82,8 +85,20 @@ func update_health(current: int, max_hp: int) -> void:
 	health_label.text = "生命  %d / %d" % [current, max_hp]
 
 
+func update_armor(current: int, max_armor: int) -> void:
+	armor_label.text = "防护  %d / %d" % [current, max_armor]
+
+
 func update_coins(amount: int) -> void:
 	coin_label.text = "金币  %d" % amount
+
+
+## 右上角小地图: Main 在关卡构建后注入数据引用
+func setup_minimap(level: Node, player: Node3D, entities: Node3D) -> void:
+	var mm: Control = MiniMapScript.new()
+	mm.name = "MiniMap"
+	add_child(mm)
+	mm.setup(level, player, entities)
 
 
 func show_hurt() -> void:
