@@ -58,6 +58,11 @@ func _connect_player() -> void:
 	player.fired.connect(func(): GameData.play_sfx("Shoot"))
 	player.reload_started.connect(func(): GameData.play_sfx("ReloadStart"))
 	player.reload_finished.connect(func(): GameData.play_sfx("ReloadEnd"))
+	player.component_rejected.connect(func(needed: int):
+		if needed > 2:
+			hud.show_toast("武器改装已完成（二级组件上限）")
+		else:
+			hud.show_toast("组件不兼容：需要先获得一级武器升级组件"))
 	# Player._ready 先于本函数执行，初始信号已丢失——主动同步一次 HUD
 	hud.update_weapon(player.weapon_display_name(), player.weapon_viewmodel())
 	hud.update_ammo(player.ammo_clip, player.ammo_reserve)

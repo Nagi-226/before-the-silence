@@ -1,6 +1,7 @@
 extends Area3D
-## Pickup — 七种拾取物，符号语义与 C++ 版一致
+## Pickup — 九种拾取物，符号语义与 C++ 版一致
 ## H=生命 C=金币 A=弹药  h/a/w=升级(消耗金币)  W=武器(冲锋枪，配置生成)
+## u/U=通用武器升级组件(一级/二级，配置生成，需按顺序获取)
 
 signal collected(symbol: String)
 
@@ -14,18 +15,20 @@ var _time := 0.0
 const TYPE_NAMES := {
 	"H": "Health", "C": "Coin", "A": "Ammo",
 	"h": "UpgradeHealth", "a": "UpgradeAmmo", "w": "UpgradeSpeed",
-	"W": "SMG",
+	"W": "SMG", "u": "WeaponComp1", "U": "WeaponComp2",
 }
 const TEXTURES := {
 	"H": "Heart.png", "C": "Coin.png", "A": "Battery.png",
 	"h": "Upgrade Heart 10.png", "a": "Upgrade Ammo 10.png",
 	"w": "Upgrade Weapon Speed 10.png",
 	"W": "Weapon SMG Pickup.png",
+	"u": "Upgrade Component 1.png", "U": "Upgrade Component 2.png",
 }
 const SOUND_KEYS := {
 	"Health": "Health", "Coin": "Coin", "Ammo": "Ammo",
 	"UpgradeHealth": "UpgradeHealth", "UpgradeAmmo": "UpgradeAmmo",
 	"UpgradeSpeed": "UpgradeSpeed", "SMG": "WeaponPickup",
+	"WeaponComp1": "WeaponComp", "WeaponComp2": "WeaponComp",
 }
 
 
@@ -66,6 +69,12 @@ func _on_body_entered(body: Node3D) -> void:
 				return
 		"SMG":
 			body.grant_weapon("smg")
+		"WeaponComp1":
+			if not body.apply_weapon_component(1):
+				return  # 顺序不符（或已满级），保留拾取物
+		"WeaponComp2":
+			if not body.apply_weapon_component(2):
+				return
 	GameData.play_pickup_sound(SOUND_KEYS.get(type_name, "Coin"))
 	collected.emit(symbol)
 	queue_free()

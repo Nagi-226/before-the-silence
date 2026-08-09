@@ -57,6 +57,7 @@ func build(map_index: int, entity_root: Node3D) -> Vector3:
 	_build_floor_ceiling()
 	_build_collision(buckets)
 	_spawn_weapon_pickups(map_index, entity_root)
+	_spawn_upgrade_components(map_index, entity_root)
 	return Vector3(spawn.x, 0.65, spawn.z)
 
 
@@ -78,6 +79,24 @@ func _spawn_weapon_pickups(map_index: int, entity_root: Node3D) -> void:
 		var pickup: Node3D = PickupScene.instantiate()
 		pickup.position = _cell_center(cell.x, cell.y)
 		pickup.symbol = "W"
+		entity_root.add_child(pickup)
+
+
+## 按 weapons.json upgradeComponents.spawns 生成通用武器升级组件
+## （符号 "u"=一级 / "U"=二级），不进入与 C++ 同源的地图数据
+func _spawn_upgrade_components(map_index: int, entity_root: Node3D) -> void:
+	for entry in GameData.component_spawns:
+		var ed: Dictionary = entry
+		if int(ed.get("map", -1)) != map_index:
+			continue
+		var tier := int(ed.get("tier", 1))
+		var cell := _find_floor(int(ed.get("x", 0)), int(ed.get("y", 0)))
+		if cell == Vector2i(-1, -1):
+			push_warning("升级组件生成点无有效地砖: map%d (%d,%d)" % [map_index, int(ed.get("x", 0)), int(ed.get("y", 0))])
+			continue
+		var pickup: Node3D = PickupScene.instantiate()
+		pickup.position = _cell_center(cell.x, cell.y)
+		pickup.symbol = "u" if tier == 1 else "U"
 		entity_root.add_child(pickup)
 
 

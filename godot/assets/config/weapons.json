@@ -39,6 +39,31 @@
     { "weapon": "smg", "map": 1, "x": 14, "y": 10 }
   ],
 
+  "upgradeComponents": {
+    "levels": [
+      {
+        "tier": 1,
+        "weapons": {
+          "pistol": { "clipSize": 25, "damage": 40 },
+          "smg": { "clipSize": 40, "damage": 40 }
+        }
+      },
+      {
+        "tier": 2,
+        "weapons": {
+          "pistol": { "clipSize": 30, "damage": 50 },
+          "smg": { "clipSize": 50, "damage": 50 }
+        }
+      }
+    ],
+    "spawns": [
+      { "tier": 1, "map": 0, "x": 22, "y": 35 },
+      { "tier": 2, "map": 0, "x": 25, "y": 35 },
+      { "tier": 1, "map": 1, "x": 16, "y": 10 },
+      { "tier": 2, "map": 1, "x": 19, "y": 10 }
+    ]
+  },
+
   "enemyTemplates": [
     {
       "damage": 5,

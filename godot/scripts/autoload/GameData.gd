@@ -6,6 +6,8 @@ var player_cfg := {}
 var weapons_cfg := []
 var weapons_shared_reserve := 90
 var weapon_pickup_spawns := []  # [{weapon, map, x, y}] 场景内武器拾取点
+var component_levels := []  # [{tier, weapons:{id:{clipSize, damage}}}] 通用武器升级组件数值表
+var component_spawns := []  # [{tier, map, x, y}] 升级组件生成点
 var enemy_weapon_cfg := []
 var enemies_cfg := {}
 var pickups_cfg := {}
@@ -32,6 +34,9 @@ func _ready() -> void:
 	weapons_cfg = weapons.get("weapons", [])
 	weapons_shared_reserve = int(weapons.get("sharedReserve", 90))
 	weapon_pickup_spawns = weapons.get("pickupSpawns", [])
+	var comps: Dictionary = weapons.get("upgradeComponents", {})
+	component_levels = comps.get("levels", [])
+	component_spawns = comps.get("spawns", [])
 	enemy_weapon_cfg = weapons.get("enemyTemplates", [])
 	enemies_cfg = _load_json(CFG_DIR + "enemies.json")
 	pickups_cfg = _load_json(CFG_DIR + "pickups.json")
@@ -76,6 +81,7 @@ func _load_sounds() -> void:
 		"UpgradeAmmo": "res://assets/sounds/Upgrade.ogg",
 		"UpgradeSpeed": "res://assets/sounds/Energy Orb.ogg",
 		"WeaponPickup": "res://assets/sounds/Energy Orb.ogg",
+		"WeaponComp": "res://assets/sounds/Upgrade.ogg",
 	}
 	for key in mapping:
 		var stream: Variant = load(mapping[key])

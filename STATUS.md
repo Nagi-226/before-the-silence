@@ -21,15 +21,18 @@ Signal Lost 是复古 DOOM 风 FPS：2057 年侦察兵深入远东废墟感染�
 | 维度 | 状态 |
 | --- | --- |
 | 活跃开发线 | Godot 重制版（`godot/`） |
-| 最新提交 | `9b4acf4` STATUS.md 进度追踪体系 + README + 项目更名 Signal Lost |
+| 分支策略 | `master`=有效主线；`dev1`/`dev2`=功能开发+验证分支，**用户实机验收合格后方可合入 master** |
+| 最新提交 | 见 git log（本条目随里程碑更新） |
 | 游戏完成度 | 双地图可完整通关（找信标撤离），菜单/简报/HUD/音效齐备 |
 | 武器系统 | 手枪（半自动 20 发，初始持有）+ 冲锋枪（全自动 30 发，场景拾取获得） |
+| 武器升级 | 通用升级组件（一级/二级，每图各 1 个，需按顺序获取）：弹匣 手枪 20→25→30 / 冲锋枪 30→40→50，伤害 32→40→50 |
 | 切换绑定 | Q / 鼠标滚轮循环切换（事件驱动，经 `Main._unhandled_input`） |
-| 回归测试 | SmokeTest 24 断言全过：`godot --path godot --headless res://scenes/tests/SmokeTest.tscn` |
-| 待用户验收 | 实机试玩手感（移动/射击/拾取节奏） |
+| 回归测试 | SmokeTest 33 断言全过：`godot --path godot --headless res://scenes/tests/SmokeTest.tscn` |
+| 用户验收 | 2026-08-09 升级组件改动已实机验收通过并合入 master |
 
 ## 最新进展（新 → 旧）
 
+- **2026-08-09** — **通用武器升级组件（一/二级）+ 精英变异体改名**（dev1 开发，用户实机验收后合入 master）。weapons.json 新增 `upgradeComponents.levels/spawns` 配置驱动；弹匣 手枪 20→25→30 / 冲锋枪 30→40→50，伤害统一 32→40→50；顺序约束（二级需先完成一级改装，越级拾取拦截+toast，拾取物保留）；新符号 u/U（青/橙光晕 48×41 素材，`godot/tools/gen_upgrade_component_sprites.py` 生成）；`enemy_names` 变异体小BOSS→精英变异体；SmokeTest 24→33 断言并改物理帧驱动（headless 渲染/物理帧不同步踩坑）；README 武器/拾取物表同步
 - **2026-08-08** `9b4acf4` — 新增 STATUS.md 进度追踪体系（本文件），CLAUDE.md / README.md 加入口指引；此前 `399b3ae` 新增 README（门面文档）、项目更名 Signal Lost（原 Retro FPS），仓库首次推送 GitHub
 - **2026-08-08** `47ac39a` — **Phase 3：冲锋枪场景拾取 + Q/滚轮切换**。owned 持有模型（初始仅手枪）；`pickupSpawns` 配置生成 W 拾取物（map0 @ (20,35) / map1 @ (14,10)，不动 C++ 同源地图）；`grant_weapon` 首拾补满弹匣+自动切换，重复拾取转 30 备弹；移除 1/2 键；拾取精灵 48×41 金色光晕版；SmokeTest 扩至 24 断言
 - **2026-08-08** `aa6ce5d` — 双击启动器 `启动Godot版.bat`（自动定位 WinGet 安装的 Godot 真实 exe）
@@ -41,7 +44,7 @@ Signal Lost 是复古 DOOM 风 FPS：2057 年侦察兵深入远东废墟感染�
 
 ## 待办 / 下一步
 
-1. **用户实机试玩**：验收手感后确定后续打磨方向（当前唯一阻塞项）
+1. 下一阶段规划见 `docs/plans/2026-08-09-godot-下一阶段规划.md`：HUD 小地图 / 室外场景与地形突破 / 敌人受击死亡动画与第一人称手部换弹素材 / 剧情背景改公司生物兵器失控
 2. 武器拾取音效目前复用 `Energy Orb.ogg`，待用户提供专属音效偏好
 3. 候选方向（待用户拍板）：新武器/敌人种类、难度选择接入 Godot 版、存档系统、更多地图
 

@@ -1,7 +1,8 @@
 extends Node
 ## SmokeTest — headless 端到端自检（可长期保留作回归测试）
 ## 覆盖: 世界生成 / 武器持有模型 / 武器拾取获得 / Q+滚轮循环切换 /
-##       金币拾取 / 子弹命中敌人 / 弹药消耗 / 终点旗通关判定
+##       金币拾取 / 通用升级组件(顺序拦截+一二级数值) / 子弹命中敌人 /
+##       弹药消耗 / 终点旗通关判定
 ## 运行: godot --path godot --headless res://scenes/tests/SmokeTest.tscn
 
 var _frame := 0
@@ -17,6 +18,7 @@ var _enemy_hp_before := 0
 var _ammo_before := 0
 var _noop_test_done := false
 var _cycle_test_done := false
+var _components_test_done := false
 
 
 func _ready() -> void:
@@ -39,11 +41,12 @@ func _process(_delta: float) -> void:
 		27: _test_cycle_switch()
 		40: _setup_pickup()
 		55: _check_pickup()
-		60: _setup_shoot()
-		105: _check_shoot()
-		110: _setup_flag()
-		150: _check_flag()
-		155: _finish()
+		57: _test_components()
+		85: _setup_shoot()
+		130: _check_shoot()
+		135: _setup_flag()
+		175: _check_flag()
+		181: _finish()
 
 
 func _report(ok: bool, msg: String) -> void:
@@ -57,13 +60,20 @@ func _check_world_built() -> void:
 	_report(enemies.size() >= 10, "敌人数量: %d (期望 >= 10)" % enemies.size())
 	var pickup_count := 0
 	var has_weapon_pickup := false
+	var has_comp1 := false
+	var has_comp2 := false
 	for c in _entities.get_children():
 		if "symbol" in c:
 			pickup_count += 1
 			if c.symbol == "W":
 				has_weapon_pickup = true
+			elif c.symbol == "u":
+				has_comp1 = true
+			elif c.symbol == "U":
+				has_comp2 = true
 	_report(pickup_count >= 20, "拾取物数量: %d (期望 >= 20)" % pickup_count)
 	_report(has_weapon_pickup, "冲锋枪拾取物已按配置生成")
+	_report(has_comp1 and has_comp2, "一/二级升级组件已按配置生成")
 	_report(get_tree().get_first_node_in_group("player") != null, "玩家节点就绪")
 
 
@@ -171,7 +181,65 @@ func _check_pickup() -> void:
 	_report(_player.coins >= 1, "金币拾取生效: coins=%d" % _player.coins)
 
 
+func _teleport_to_symbol(symbol: String, label: String) -> void:
+	for c in _entities.get_children():
+		if "symbol" in c and c.symbol == symbol:
+			_player.global_position = c.global_position
+			_report(true, "已传送至%s @ %s" % [label, c.global_position])
+			return
+	_report(false, "未找到%s拾取物" % label)
+
+
+func _count_symbol(symbol: String) -> int:
+	var n := 0
+	for c in _entities.get_children():
+		if "symbol" in c and c.symbol == symbol:
+			n += 1
+	return n
+
+
+## 通用升级组件端到端: 越级拦截 → 一级生效 → 二级生效。
+## 物理帧驱动（与 _test_cycle_switch 同法）：headless 下渲染帧与物理帧
+## 不同步，固定帧号间隔不可靠，传送后必须等 physics_frame 让 body_entered 派发
+func _test_components() -> void:
+	# 1) 未持有一级时踩二级: 不生效且拾取物保留
+	_teleport_to_symbol("U", "二级组件")
+	for i in 4:
+		await get_tree().physics_frame
+	_report(_player.weapon_tier == 0, "越级拾取被拦截: tier=%d (期望 0)" % _player.weapon_tier)
+	_report(_count_symbol("U") == 1, "二级组件保留在场景中 (数量=%d)" % _count_symbol("U"))
+
+	# 2) 拾取一级组件: 手枪 25发/伤害40，冲锋枪 40发/伤害40
+	_teleport_to_symbol("u", "一级组件")
+	for i in 4:
+		await get_tree().physics_frame
+	var pistol: Dictionary = _player.weapons[0]
+	var smg: Dictionary = _player.weapons[1]
+	_report(_player.weapon_tier == 1
+		and int(pistol["clipSize"]) == 25 and int(pistol["damage"]) == 40,
+		"一级组件生效: 手枪 tier=%d %d发/伤害%d (期望 1/25/40)"
+		% [_player.weapon_tier, int(pistol["clipSize"]), int(pistol["damage"])])
+	_report(int(smg["clipSize"]) == 40 and int(smg["damage"]) == 40,
+		"一级组件生效: 冲锋枪 %d发/伤害%d (期望 40/40)"
+		% [int(smg["clipSize"]), int(smg["damage"])])
+
+	# 3) 拾取二级组件: 手枪 30发/伤害50，冲锋枪 50发/伤害50
+	_teleport_to_symbol("U", "二级组件")
+	for i in 4:
+		await get_tree().physics_frame
+	_report(_player.weapon_tier == 2
+		and int(pistol["clipSize"]) == 30 and int(pistol["damage"]) == 50,
+		"二级组件生效: 手枪 tier=%d %d发/伤害%d (期望 2/30/50)"
+		% [_player.weapon_tier, int(pistol["clipSize"]), int(pistol["damage"])])
+	_report(int(smg["clipSize"]) == 50 and int(smg["damage"]) == 50,
+		"二级组件生效: 冲锋枪 %d发/伤害%d (期望 50/50)"
+		% [int(smg["clipSize"]), int(smg["damage"])])
+	_components_test_done = true
+
+
 func _setup_shoot() -> void:
+	while not _components_test_done:  # 组件测试传送中，避免抢占玩家位置
+		await get_tree().physics_frame
 	var enemy: Node
 	for e in get_tree().get_nodes_in_group("enemies"):
 		if is_instance_valid(e):
@@ -235,7 +303,7 @@ func _check_flag() -> void:
 
 
 func _finish() -> void:
-	while not _noop_test_done or not _cycle_test_done:
+	while not _noop_test_done or not _cycle_test_done or not _components_test_done:
 		await get_tree().physics_frame
 	print("[SMOKE] 结果: %s" % ("全部通过" if not _fail else "存在失败项"))
 	get_tree().quit(1 if _fail else 0)

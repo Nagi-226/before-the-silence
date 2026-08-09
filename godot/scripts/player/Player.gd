@@ -8,6 +8,7 @@ signal ammo_changed(clip: int, reserve: int)
 signal health_changed(current: int, max_hp: int)
 signal coins_changed(amount: int)
 signal weapon_changed(weapon_name: String, viewmodel: String)
+signal component_rejected(needed_tier: int)
 signal hurt
 signal died
 signal fired
@@ -36,6 +37,7 @@ var ammo_reserve := 90
 var weapons: Array[Dictionary] = []
 var weapon_index := 0
 var weapon_owned: Array = []  # 与 weapons 平行；未持有的武器不参与切换循环
+var weapon_tier := 0  # 通用升级组件等级 0/1/2，作用于全部武器（统一武备体系）
 
 var _fire_cooldown := 0.0
 var _reloading := 0.0
@@ -166,6 +168,27 @@ func grant_weapon(id: String) -> bool:
 		_switch_to(i)
 		return true
 	return false
+
+
+## 通用武器升级组件: tier=1/2 需按顺序获取（二级需先完成一级改装）。
+## 生效则按 weapons.json upgradeComponents.levels 表改写全部武器的
+## clipSize/damage 并返回 true；顺序不符则发 component_rejected 并返回 false
+## （拾取物保留，玩家可稍后回来取）
+func apply_weapon_component(tier: int) -> bool:
+	if tier != weapon_tier + 1:
+		component_rejected.emit(weapon_tier + 1)
+		return false
+	if tier < 1 or tier > GameData.component_levels.size():
+		return false
+	weapon_tier = tier
+	var table: Dictionary = (GameData.component_levels[tier - 1] as Dictionary).get("weapons", {})
+	for w in weapons:
+		var entry: Variant = table.get(str(w["id"]))
+		if entry is Dictionary:
+			w["clipSize"] = int(entry.get("clipSize", w["clipSize"]))
+			w["damage"] = int(entry.get("damage", w["damage"]))
+	ammo_changed.emit(ammo_clip, ammo_reserve)
+	return true
 
 
 func _process_reload(delta: float) -> void:
