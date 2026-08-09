@@ -88,6 +88,9 @@ func _check_world_built() -> void:
 	_report(has_comp1 and has_comp2 and has_comp3, "一/二/三级升级组件已按配置生成")
 	_report(has_armor, "防护服能量补给已生成（a 符号位改造）")
 	_report(legacy_count == 0, "扩展弹匣/神经加速器已实机移除 (残留=%d)" % legacy_count)
+	# 道具平衡（map0）: a(5)+w(5)+每4个H(109→27) → e=37；H 保留 82
+	_report(_count_symbol("e") == 37, "防护服电池数量: %d (期望 37)" % _count_symbol("e"))
+	_report(_count_symbol("H") == 82, "急救包数量: %d (期望 82)" % _count_symbol("H"))
 	_report(get_tree().get_first_node_in_group("player") != null, "玩家节点就绪")
 	var mm: Node = _main.get_node("HUD").get_node_or_null("MiniMap")
 	_report(mm != null and mm.get("_wall_tex") != null, "HUD 小地图已就绪")

@@ -3,7 +3,8 @@ extends Node3D
 ## 对应 C++ 版 Level::setupEntities + 渲染几何，符号语义基于 C++ 版并有 Godot 侧演进:
 ##   X/M/S/G=墙(Brick/Metal/Stone/Grate)  P=出生  F=终点
 ##   0-2=敌人(小/中/大)  H=生命 C=金币 A=弹药 h=生命上限升级
-##   a→实机改生 e(防护服能量)；w(神经加速器)已移除不再生成（射速并入升级组件）
+##   道具平衡（Godot 侧）: a/w 符号位改生 e(防护服能量)；每第 4 个 H 也改生 e
+##   （急救包密度过高，匀一部分给防护服电池，生命包数量约为原来 3/4）
 
 signal goal_reached
 
@@ -19,12 +20,14 @@ const PickupScene := preload("res://scenes/entities/Pickup.tscn")
 const FlagScene := preload("res://scenes/entities/GoalFlag.tscn")
 
 var wall_cells := {}  # Vector2i -> 符号，供 AI 视线/路径查询
+var _health_seen := 0  # H 符号序号（道具平衡换算用，build 时归零）
 
 
 func build(map_index: int, entity_root: Node3D) -> Vector3:
 	var rows := (LevelData.MAPS[map_index] as String).split("\n")
 	var buckets := {"X": [], "M": [], "S": [], "G": []}
 	var spawn := Vector3.ZERO
+	_health_seen = 0
 
 	for y in rows.size():
 		var row: String = rows[y]
@@ -48,7 +51,15 @@ func build(map_index: int, entity_root: Node3D) -> Vector3:
 					enemy.template_id = int(ch)
 					enemy.projectile_root = get_parent()
 					entity_root.add_child(enemy)
-				"H", "C", "A", "h":
+				"H":
+					# 道具平衡：每第 4 个急救包改生防护服电池（e），
+					# 生命包保留约 3/4，电池补给显著增加
+					_health_seen += 1
+					var hpick: Node3D = PickupScene.instantiate()
+					hpick.position = ground
+					hpick.symbol = "e" if _health_seen % 4 == 0 else "H"
+					entity_root.add_child(hpick)
+				"C", "A", "h":
 					var pickup: Node3D = PickupScene.instantiate()
 					pickup.position = ground
 					pickup.symbol = ch
@@ -61,7 +72,12 @@ func build(map_index: int, entity_root: Node3D) -> Vector3:
 					armor_pickup.symbol = "e"
 					entity_root.add_child(armor_pickup)
 				"w":
-					pass  # 神经加速器已实机移除（射速并入通用升级组件）
+					# 神经加速器已实机移除（射速并入升级组件），
+					# 其地图符号位同样改生防护服能量补给（e）
+					var speed_pickup: Node3D = PickupScene.instantiate()
+					speed_pickup.position = ground
+					speed_pickup.symbol = "e"
+					entity_root.add_child(speed_pickup)
 
 	_build_walls(buckets)
 	_build_floor_ceiling()

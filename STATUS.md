@@ -3,7 +3,7 @@
 > **本文件用途**：AI Agent 集群交接的唯一进度入口。任何 agent 接手前先读本文件，即可对齐项目定位、当前进度与下一步工作。
 > **更新约定**：每完成一个开发里程碑（功能/重构/修复批次）后，在「最新进展」顶部追加一条，并同步刷新「当前状态快照」与「待办」。
 
-**最后更新**: 2026-08-08 · 最新提交 `9b4acf4` · 分支 `master`（跟踪 `origin/master` @ https://github.com/Nagi-226/Signal_Lost）
+**最后更新**: 2026-08-09 · 最新提交 `826b7ed` · 分支 `master`（跟踪 `origin/master` @ https://github.com/Nagi-226/Signal_Lost）
 
 ---
 
@@ -26,14 +26,16 @@ Signal Lost 是复古 DOOM 风 FPS：2057 年侦察兵深入远东废墟感染�
 | 游戏完成度 | 双地图可完整通关（找信标撤离），菜单/简报/HUD/音效齐备；HUD 右上角实时小地图 |
 | 武器系统 | 手枪（半自动 20 发，初始持有）+ 冲锋枪（全自动 30 发，场景拾取获得） |
 | 武器升级 | 通用升级组件一/二/三阶（每图各 1 个，按推进路线分散，顺序获取）：弹匣 手枪 20→25→30→33(转全自动) / 冲锋枪 30→40→50→60，伤害 32→36→45→55，射速每阶 +10（封顶 40）；满级后组件不再可拾取 |
-| 防护服 | 电池拾取 +10 能量（上限 100），先于生命承伤；原"a 扩展弹匣"地图符号位改生防护服电池；"w 神经加速器"已移除（射速并入组件） |
+| 防护服 | 电池拾取 +10 能量（上限 100），**50% 减伤**（`armorAbsorbRate` 配置化，1 能量抵消 1 点被吸收伤害）；a/w 符号位 + 每第 4 个 H 符号位改生电池（map0 电池 37/急救包 82，map1 17/34） |
 | 剧情背景 | 诺亚生物科技生物兵器事故 → 特遣队特工进入封锁区（narrative.json） |
 | 切换绑定 | Q / 鼠标滚轮循环切换（事件驱动，经 `Main._unhandled_input`） |
-| 回归测试 | SmokeTest 45 断言全过：`godot --path godot --headless res://scenes/tests/SmokeTest.tscn` |
-| 用户验收 | 2026-08-09 P1 小地图 / P4 剧情 / 三阶组件 / 防护服 / 设置最大化修复 均已实机验收通过 |
+| 时停机制 | Viewport 显式 PROCESS_MODE_PAUSABLE（Main 为 ALWAYS 处理 UI/输入，勿让游戏实体逃出 Viewport 子树） |
+| 回归测试 | SmokeTest 49 断言全过：`godot --path godot --headless res://scenes/tests/SmokeTest.tscn` |
+| 用户验收 | 2026-08-09 结算时停 / 防护服减伤 / 道具平衡 / P1 小地图 / P4 剧情 / 三阶组件 / 设置最大化修复 均已实机验收通过 |
 
 ## 最新进展（新 → 旧）
 
+- **2026-08-09** — **结算时停修复 + 防护服 50% 减伤 + 道具平衡**（dev1，验收后合入 master）。根因修复：Main 为 PROCESS_MODE_ALWAYS 致整个 Viewport 子树（玩家/敌人/子弹）继承永不暂停——Viewport 显式改 PAUSABLE，一行覆盖结算/暂停菜单/简报三场景（暂停菜单期间敌人其实在动的隐患一并消除）；防护服能量改 50% 减伤（`armorAbsorbRate: 0.5` 配置化，1 能量抵消 1 点被吸收伤害）；道具平衡：w 死符号位改生电池 + 每第 4 个 H 改生电池（map0 电池 5→37/急救包 109→82，map1 3→17/45→34）；SmokeTest 扩至 49 断言（含电池/急救包精确计数与通关后注入射击弹药不变的暂停回归）
 - **2026-08-09** — **P1 小地图 + P4 剧情改写**（dev1，验收后合入 master）。HUD 右上角数据驱动俯视小地图（墙体预渲染纹理+玩家箭头/敌人/信标，显式定位+resize 跟随；踩坑：CanvasLayer 直接子节点锚点不按视口解析、符号地图实际 69 行超 HEIGHT 常量）；剧情改诺亚生物科技生物兵器失控+特遣队特工（简报/结算/区域提示/README）
 - **2026-08-09** — **三阶组件 + 道具体系重构**（dev1，验收后合入 master）。组件三阶：手枪 33 发+全自动 / 冲锋枪 60 发，伤害改 36/45/55，每阶射速 +10 封顶 40（合并神经加速器职能）；二阶紫/三阶金黄素材；"a 扩展弹匣""w 神经加速器"实机移除（生成层拦截，地图数据不动），"a"符号位改生**防护服能量**（Battery.png，+10，HUD 防护条，优先承伤）；急救包/电池满额拒收；组件分散放置（map0 西→东 / map1 同）；弹药箱换用 Upgrade Ammo 10.png；修复设置滑条拖动重置最大化窗口（Settings.apply 无条件 window_set_mode）；SmokeTest 45 断言
 - **2026-08-09** — **通用武器升级组件（一/二级）+ 精英变异体改名**（dev1 开发，用户实机验收后合入 master）。weapons.json 新增 `upgradeComponents.levels/spawns` 配置驱动；顺序约束（越级拾取拦截+toast，拾取物保留）；`enemy_names` 变异体小BOSS→精英变异体；SmokeTest 24→33 断言并改物理帧驱动（headless 渲染/物理帧不同步踩坑）；README 武器/拾取物表同步
@@ -57,7 +59,7 @@ Signal Lost 是复古 DOOM 风 FPS：2057 年侦察兵深入远东废墟感染�
 **关键路径与工具链**
 
 - Godot 4.6.2 经 WinGet 安装，真实进程名 `Godot_v4.6.2-stable_win64`（`Get-Process godot` 会假阴性）
-- 回归命令：`godot --path godot --headless res://scenes/tests/SmokeTest.tscn`（24 断言）
+- 回归命令：`godot --path godot --headless res://scenes/tests/SmokeTest.tscn`（49 断言）
 - C++ 版回归：`ctest --test-dir build -C Debug --output-on-failure`（127 测试）
 
 **硬性约束**

@@ -32,7 +32,8 @@ var gravity: float = ProjectSettings.get_setting("physics/3d/default_gravity", 9
 var health_max := 100
 var health_cur := 100
 var armor_max := 100
-var armor_cur := 0  # 防护服能量：先于生命承受伤害（1:1 吸收）
+var armor_cur := 0  # 防护服能量：按 armorAbsorbRate 比例吸收伤害
+var armor_absorb_rate := 0.5  # 减伤比例：能量按 1:1 抵消该比例的伤害
 var coins := 0
 var ammo_reserve := 90
 
@@ -69,6 +70,7 @@ func _ready() -> void:
 	health_cur = health_max
 	armor_max = int(pcfg.get("armorMax", 100))
 	armor_cur = int(pcfg.get("baseArmor", 0))
+	armor_absorb_rate = clampf(float(pcfg.get("armorAbsorbRate", 0.5)), 0.0, 1.0)
 	_build_weapons()
 	Input.mouse_mode = Input.MOUSE_MODE_CAPTURED
 	ammo_changed.emit(ammo_clip, ammo_reserve)
@@ -256,9 +258,9 @@ func _shoot() -> void:
 func take_damage(amount: int) -> void:
 	if health_cur <= 0:
 		return
-	# 防护服能量先于生命承受伤害（1:1 吸收，溢出部分扣生命）
+	# 防护服能量减伤：按 armorAbsorbRate 比例吸收伤害（1 点能量抵消 1 点被吸收的伤害）
 	if armor_cur > 0:
-		var absorbed := mini(armor_cur, amount)
+		var absorbed := mini(ceili(amount * armor_absorb_rate), armor_cur)
 		armor_cur -= absorbed
 		amount -= absorbed
 		armor_changed.emit(armor_cur, armor_max)

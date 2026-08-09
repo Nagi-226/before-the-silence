@@ -4,6 +4,7 @@
   "baseHealth": 100,
   "baseArmor": 0,
   "armorMax": 100,
+  "armorAbsorbRate": 0.5,
 
   "feedback": {
     "hurtDuration": 0.3,
