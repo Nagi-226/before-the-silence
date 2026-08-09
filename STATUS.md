@@ -71,6 +71,7 @@ Signal Lost 是复古 DOOM 风 FPS：2057 年侦察兵深入远东废墟感染�
 
 **已验证的技术方案（避免重复踩坑）**
 
+- **暂停体系**：`Main`=PROCESS_MODE_ALWAYS（处理 UI/输入），`Viewport`=显式 PAUSABLE——游戏实体（玩家/敌人/子弹/拾取物）必须挂在 Viewport 子树内，挂到 Main 直下会继承 ALWAYS 导致 paused 时仍在跑（2026-08-09 结算时停 BUG 的根因）
 - 脉冲输入（Q/滚轮）测试：`Input.parse_input_event` 注入 + `await get_tree().physics_frame` 等帧
 - 窗口实证：SubViewport `get_texture().get_image().save_png()` 拿像素级渲染，比窗口截屏可靠
 - 视线验证：截图/观察前先用 `PhysicsRayQueryParameters3D` 射线确认相机与目标间无墙体遮挡（排除玩家/目标自身 RID）
