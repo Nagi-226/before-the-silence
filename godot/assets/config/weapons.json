@@ -29,6 +29,24 @@
       "reloadTime": 2.0,
       "spawnOffset": 0.5,
       "viewmodel": "WeaponSMG.png"
+    },
+    {
+      "id": "shotgun",
+      "displayName": "霰弹枪",
+      "auto": false,
+      "owned": false,
+      "ammoClip": 8,
+      "clipSize": 8,
+      "fireRate": 1.2,
+      "damage": 20,
+      "pellets": 6,
+      "spreadDeg": 7.0,
+      "pump": true,
+      "bulletSpeed": 15.0,
+      "bulletRange": 12.0,
+      "reloadTime": 2.5,
+      "spawnOffset": 0.5,
+      "viewmodel": "WeaponShotgun.png"
     }
   ],
 
@@ -36,7 +54,24 @@
 
   "pickupSpawns": [
     { "weapon": "smg", "map": 0, "x": 20, "y": 35 },
-    { "weapon": "smg", "map": 1, "x": 14, "y": 10 }
+    { "weapon": "smg", "map": 1, "x": 14, "y": 10 },
+    { "weapon": "shotgun", "map": 0, "x": 16, "y": 13 },
+    { "weapon": "shotgun", "map": 1, "x": 32, "y": 18 }
+  ],
+
+  "shellSpawns": [
+    { "map": 0, "x": 7, "y": 14 },
+    { "map": 0, "x": 26, "y": 5 },
+    { "map": 0, "x": 45, "y": 10 },
+    { "map": 0, "x": 60, "y": 30 },
+    { "map": 0, "x": 75, "y": 20 },
+    { "map": 0, "x": 95, "y": 40 },
+    { "map": 0, "x": 110, "y": 30 },
+    { "map": 0, "x": 125, "y": 50 },
+    { "map": 1, "x": 56, "y": 30 },
+    { "map": 1, "x": 80, "y": 26 },
+    { "map": 1, "x": 110, "y": 39 },
+    { "map": 1, "x": 135, "y": 44 }
   ],
 
   "upgradeComponents": {
@@ -46,21 +81,24 @@
         "tier": 1,
         "weapons": {
           "pistol": { "clipSize": 25, "damage": 36 },
-          "smg": { "clipSize": 40, "damage": 36 }
+          "smg": { "clipSize": 40, "damage": 36 },
+          "shotgun": { "clipSize": 12, "damage": 25, "pellets": 7, "fireRate": 1.5 }
         }
       },
       {
         "tier": 2,
         "weapons": {
           "pistol": { "clipSize": 30, "damage": 45 },
-          "smg": { "clipSize": 50, "damage": 45 }
+          "smg": { "clipSize": 50, "damage": 45 },
+          "shotgun": { "clipSize": 16, "damage": 30, "pellets": 8, "fireRate": 2.2, "pump": false }
         }
       },
       {
         "tier": 3,
         "weapons": {
           "pistol": { "clipSize": 33, "damage": 55, "auto": true },
-          "smg": { "clipSize": 60, "damage": 55 }
+          "smg": { "clipSize": 60, "damage": 55 },
+          "shotgun": { "clipSize": 24, "damage": 40, "pellets": 10, "fireRate": 3.0, "auto": true }
         }
       }
     ],

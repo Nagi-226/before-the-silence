@@ -83,6 +83,7 @@ func build(map_index: int, entity_root: Node3D) -> Vector3:
 	_build_floor_ceiling()
 	_build_collision(buckets)
 	_spawn_weapon_pickups(map_index, entity_root)
+	_spawn_shell_pickups(map_index, entity_root)
 	_spawn_upgrade_components(map_index, entity_root)
 	return Vector3(spawn.x, 0.65, spawn.z)
 
@@ -91,9 +92,10 @@ func is_wall(x: int, y: int) -> bool:
 	return wall_cells.has(Vector2i(x, y))
 
 
-## 按 weapons.json 的 pickupSpawns 生成武器拾取物（符号 "W"），
+## 按 weapons.json 的 pickupSpawns 生成武器拾取物（smg="W" / shotgun="T"），
 ## 不进入与 C++ 同源的地图数据
 func _spawn_weapon_pickups(map_index: int, entity_root: Node3D) -> void:
+	const WEAPON_SYMBOLS := {"smg": "W", "shotgun": "T"}
 	for entry in GameData.weapon_pickup_spawns:
 		var ed: Dictionary = entry
 		if int(ed.get("map", -1)) != map_index:
@@ -104,7 +106,24 @@ func _spawn_weapon_pickups(map_index: int, entity_root: Node3D) -> void:
 			continue
 		var pickup: Node3D = PickupScene.instantiate()
 		pickup.position = _cell_center(cell.x, cell.y)
-		pickup.symbol = "W"
+		pickup.symbol = str(WEAPON_SYMBOLS.get(str(ed.get("weapon", "smg")), "W"))
+		entity_root.add_child(pickup)
+
+
+## 按 weapons.json 的 shellSpawns 生成 12 号霰弹补给（符号 "s"），
+## 自霰弹枪所在区域起随推进路线分布
+func _spawn_shell_pickups(map_index: int, entity_root: Node3D) -> void:
+	for entry in GameData.shell_spawns:
+		var ed: Dictionary = entry
+		if int(ed.get("map", -1)) != map_index:
+			continue
+		var cell := _find_floor(int(ed.get("x", 0)), int(ed.get("y", 0)))
+		if cell == Vector2i(-1, -1):
+			push_warning("霰弹补给点无有效地砖: map%d (%d,%d)" % [map_index, int(ed.get("x", 0)), int(ed.get("y", 0))])
+			continue
+		var pickup: Node3D = PickupScene.instantiate()
+		pickup.position = _cell_center(cell.x, cell.y)
+		pickup.symbol = "s"
 		entity_root.add_child(pickup)
 
 

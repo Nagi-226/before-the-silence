@@ -3,7 +3,8 @@
     "ammoPickup": 10,
     "healAmount": 25,
     "armorPickup": 10,
-    "weaponPickupAmmo": 30
+    "weaponPickupAmmo": 30,
+    "shellPickup": 6
   },
 
   "upgrades": {

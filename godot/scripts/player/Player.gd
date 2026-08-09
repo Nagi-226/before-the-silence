@@ -14,6 +14,7 @@ signal pickup_hint(text: String)
 signal hurt
 signal died
 signal fired
+signal pump_started(duration: float)  # 泵动式霰弹枪：击发后上膛动作
 signal reload_started
 signal reload_finished
 
@@ -97,6 +98,9 @@ func _build_weapons() -> void:
 			"reloadTime": float(cd.get("reloadTime", 2.0)),
 			"spawnOffset": float(cd.get("spawnOffset", 0.5)) * WorldConst.CELL,
 			"viewmodel": str(cd.get("viewmodel", "Weapon.png")),
+			"pellets": int(cd.get("pellets", 1)),  # 单发弹丸数（霰弹枪 >1）
+			"spreadDeg": float(cd.get("spreadDeg", 0.0)),  # 弹丸散布锥角（角度制，散布随射程自然放大）
+			"pump": bool(cd.get("pump", false)),  # 泵动式：射击后播放上膛动作（二阶组件后移除）
 		})
 		weapon_owned.append(bool(cd.get("owned", i == 0)))
 	if weapons.is_empty():  # 配置缺失兜底，保证可运行
@@ -198,7 +202,16 @@ func apply_weapon_component(tier: int) -> bool:
 			w["clipSize"] = int(entry.get("clipSize", w["clipSize"]))
 			w["damage"] = int(entry.get("damage", w["damage"]))
 			w["auto"] = bool(entry.get("auto", w["auto"]))
-		if rate_add > 0.0:
+			if entry.has("pellets"):
+				w["pellets"] = int(entry["pellets"])
+			if entry.has("pump"):
+				w["pump"] = bool(entry["pump"])
+			if entry.has("fireRate"):
+				# 绝对射速覆盖（霰弹枪泵动/半自动/全自动节奏独立，不参与 +10 叠加）
+				w["fireInterval"] = 1.0 / float(entry["fireRate"])
+			elif rate_add > 0.0:
+				w["fireInterval"] = 1.0 / (1.0 / float(w["fireInterval"]) + rate_add)
+		elif rate_add > 0.0:
 			w["fireInterval"] = 1.0 / (1.0 / float(w["fireInterval"]) + rate_add)
 	ammo_changed.emit(ammo_clip, ammo_reserve)
 	return true
@@ -243,15 +256,28 @@ func _shoot() -> void:
 	ammo_clip -= 1
 	_fire_cooldown = float(w["fireInterval"])
 	fired.emit()
-	var proj: Node3D = ProjectileScene.instantiate()
-	proj.from_player = true
-	proj.damage = int(w["damage"])
-	proj.speed = float(w["bulletSpeed"])
-	proj.max_range = float(w["bulletRange"])
-	proj.direction = -camera.global_transform.basis.z
-	var root := projectile_root if projectile_root else get_tree().root
-	root.add_child(proj)
-	proj.global_position = camera.global_position - camera.global_transform.basis.z * float(w["spawnOffset"])
+	if bool(w.get("pump", false)) and not bool(w["auto"]):
+		# 泵动式：击发后上膛动作（DOOM 式节奏，二阶组件后不再触发）
+		pump_started.emit(minf(float(w["fireInterval"]) * 0.8, 0.6))
+	var pellets: int = int(w.get("pellets", 1))
+	var spread := deg_to_rad(float(w.get("spreadDeg", 0.0)))
+	var cam_basis := camera.global_transform.basis
+	for p in pellets:
+		var proj: Node3D = ProjectileScene.instantiate()
+		proj.from_player = true
+		proj.damage = int(w["damage"])
+		proj.speed = float(w["bulletSpeed"])
+		proj.max_range = float(w["bulletRange"])
+		var dir := -cam_basis.z
+		if spread > 0.0:
+			# 角散布：偏移量随飞行距离线性放大（锥形散布）
+			var yaw := randf_range(-spread * 0.5, spread * 0.5)
+			var pitch := randf_range(-spread * 0.5, spread * 0.5)
+			dir = dir.rotated(Vector3.UP, yaw).rotated(cam_basis.x, pitch).normalized()
+		proj.direction = dir
+		var root := projectile_root if projectile_root else get_tree().root
+		root.add_child(proj)
+		proj.global_position = camera.global_position - cam_basis.z * float(w["spawnOffset"])
 	ammo_changed.emit(ammo_clip, ammo_reserve)
 
 

@@ -102,7 +102,13 @@ func update_ammo(clip: int, reserve: int) -> void:
 
 func update_weapon(weapon_name: String, viewmodel: String) -> void:
 	_weapon_name = weapon_name
-	_weapon_id = "smg" if viewmodel.to_lower().contains("smg") else "pistol"
+	var vm := viewmodel.to_lower()
+	if vm.contains("shotgun"):
+		_weapon_id = "shotgun"
+	elif vm.contains("smg"):
+		_weapon_id = "smg"
+	else:
+		_weapon_id = "pistol"
 	_reset_weapon_pose()
 	var path := "res://assets/images/" + viewmodel
 	if ResourceLoader.exists(path):
@@ -129,13 +135,34 @@ func play_weapon_fire() -> void:
 	_weapon_tween.chain().tween_callback(func(): _weapon_anim_state = "idle")
 
 
+## 泵动式霰弹枪：击发后下拉-回推的上膛动作（DOOM 式节奏）。
+## 二阶组件后转半自动/全自动，Player 不再发 pump_started，本函数即不再触发。
+func play_weapon_pump(duration: float) -> void:
+	if _weapon_anim_state == "reload":
+		return
+	if _weapon_tween and _weapon_tween.is_valid():
+		_weapon_tween.kill()
+	_weapon_anim_state = "pump"
+	var down := _weapon_base_position + Vector2(6.0, 22.0)
+	var half := clampf(duration * 0.45, 0.08, 0.3)
+	_weapon_tween = create_tween()
+	_weapon_tween.set_pause_mode(Tween.TWEEN_PAUSE_STOP)
+	_weapon_tween.set_trans(Tween.TRANS_QUAD).set_ease(Tween.EASE_IN_OUT)
+	_weapon_tween.tween_property(weapon_rect, "position", down, half)
+	_weapon_tween.parallel().tween_property(weapon_rect, "rotation", _weapon_base_rotation + 0.06, half)
+	_weapon_tween.set_trans(Tween.TRANS_QUAD).set_ease(Tween.EASE_OUT)
+	_weapon_tween.tween_property(weapon_rect, "position", _weapon_base_position, half)
+	_weapon_tween.parallel().tween_property(weapon_rect, "rotation", _weapon_base_rotation, half)
+	_weapon_tween.tween_callback(func(): _weapon_anim_state = "idle")
+
+
 ## 两把武器使用不同轮廓的换弹动作，后续可无缝替换为逐帧手部素材。
 func play_weapon_reload(weapon_id: String, duration: float) -> void:
 	if _weapon_tween and _weapon_tween.is_valid():
 		_weapon_tween.kill()
 	_weapon_id = weapon_id
 	_weapon_anim_state = "reload"
-	_reload_label.text = "%s · 更换弹匣" % _weapon_name
+	_reload_label.text = "%s · 装填霰弹" % _weapon_name if weapon_id == "shotgun" else "%s · 更换弹匣" % _weapon_name
 	_reload_label.visible = true
 	_reload_label.modulate.a = 1.0
 	_weapon_tween = create_tween()
