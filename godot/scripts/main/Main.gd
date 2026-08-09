@@ -57,9 +57,15 @@ func _connect_player() -> void:
 		hud.show_hurt()
 		GameData.play_sfx("PlayerHurt"))
 	player.died.connect(_on_defeat)
-	player.fired.connect(func(): GameData.play_sfx("Shoot"))
-	player.reload_started.connect(func(): GameData.play_sfx("ReloadStart"))
-	player.reload_finished.connect(func(): GameData.play_sfx("ReloadEnd"))
+	player.fired.connect(func():
+		GameData.play_sfx("Shoot")
+		hud.play_weapon_fire())
+	player.reload_started.connect(func():
+		GameData.play_sfx("ReloadStart")
+		hud.play_weapon_reload(player.weapon_id(), player.weapon_reload_time()))
+	player.reload_finished.connect(func():
+		GameData.play_sfx("ReloadEnd")
+		hud.finish_weapon_reload())
 	player.component_rejected.connect(func(needed: int):
 		const TIER_NAMES := {1: "一级", 2: "二级", 3: "三级"}
 		if needed > 3:

@@ -308,6 +308,14 @@ func weapon_viewmodel() -> String:
 	return str(weapons[weapon_index]["viewmodel"])
 
 
+func weapon_id() -> String:
+	return str(weapons[weapon_index]["id"])
+
+
+func weapon_reload_time() -> float:
+	return float(weapons[weapon_index]["reloadTime"])
+
+
 ## 升级拾取: kind = "Health" / "Ammo" / "Speed"，消耗金币，返回是否生效
 ## Ammo/Speed 升级作用于全部武器（统一武备体系）
 ## Ammo 弹匣增长钳制在组件最高阶 clipSize（33/60 顶头）；全部到顶则拒收

@@ -3,7 +3,7 @@ extends Node
 ## 覆盖: 世界生成(含a/w移除与防护服生成) / 武器持有模型 / 武器拾取 /
 ##       Q+滚轮循环切换 / 金币拾取 / 满血拒收急救包 / 防护服充能与优先承伤 /
 ##       通用升级组件(顺序拦截+一二三级数值+射速叠加+满级拒收) /
-##       子弹命中敌人 / 弹药消耗 / 终点旗通关判定
+##       子弹命中敌人 / 弹药消耗 / 武器动画 / 敌人死亡流程 / 终点旗通关判定
 ## 运行: godot --path godot --headless res://scenes/tests/SmokeTest.tscn
 
 var _frame := 0
@@ -21,6 +21,8 @@ var _noop_test_done := false
 var _cycle_test_done := false
 var _components_test_done := false
 var _health_test_done := false
+var _death_test_done := false
+var _flag_test_done := false
 
 
 func _ready() -> void:
@@ -47,9 +49,8 @@ func _process(_delta: float) -> void:
 		57: _test_components()
 		85: _setup_shoot()
 		130: _check_shoot()
-		135: _setup_flag()
-		175: _check_flag()
-		181: _finish()
+		135: _check_death_collision()
+		346: _finish()
 
 
 func _report(ok: bool, msg: String) -> void:
@@ -356,6 +357,35 @@ func _check_shoot() -> void:
 			"子弹命中敌人: HP %d -> %d (伤害 %d)" % [_enemy_hp_before, hp, dmg])
 	_report(_player.ammo_clip == _ammo_before - 1,
 		"弹药消耗: %d -> %d" % [_ammo_before, _player.ammo_clip])
+	var hud: Node = _main.get_node("HUD")
+	hud.play_weapon_reload(_player.weapon_id(), 0.2)
+	_report(hud.is_weapon_reloading(), "当前武器独立换弹动画已启动")
+	hud.finish_weapon_reload()
+	if is_instance_valid(_enemy_target):
+		_enemy_target.take_damage(9999)
+		_report(_enemy_target.is_dying and _enemy_target.health == 0,
+			"敌人死亡状态启动，尸体未立即消失")
+		_verify_death_cleanup()
+
+
+func _check_death_collision() -> void:
+	if is_instance_valid(_enemy_target):
+		var shape: CollisionShape3D = _enemy_target.get_node("CollisionShape3D")
+		_report(shape.disabled, "死亡敌人碰撞已关闭，不再阻挡玩家与子弹")
+
+
+func _verify_death_cleanup() -> void:
+	var feedback: Dictionary = GameData.enemies_cfg.get("feedback", {})
+	var total := float(feedback.get("deathFallTime", 0.34)) \
+		+ float(feedback.get("corpseStayTime", 1.25)) \
+		+ float(feedback.get("corpseBlinkTime", 0.55)) \
+		+ float(feedback.get("deathFadeTime", 0.4)) + 0.2
+	await get_tree().create_timer(total, true).timeout
+	_report(not is_instance_valid(_enemy_target), "死亡尸体完成停留、闪烁并淡出清理")
+	_death_test_done = true
+	_setup_flag()
+	await get_tree().create_timer(0.2, true).timeout
+	_check_flag()
 
 
 func _setup_flag() -> void:
@@ -369,10 +399,11 @@ func _setup_flag() -> void:
 
 func _check_flag() -> void:
 	_report(_main.game_over == true, "通关判定触发 (game_over=true)")
+	_flag_test_done = true
 
 
 func _finish() -> void:
-	while not _noop_test_done or not _cycle_test_done or not _components_test_done or not _health_test_done:
+	while not _noop_test_done or not _cycle_test_done or not _components_test_done or not _health_test_done or not _death_test_done or not _flag_test_done:
 		await get_tree().physics_frame
 	print("[SMOKE] 结果: %s" % ("全部通过" if not _fail else "存在失败项"))
 	get_tree().quit(1 if _fail else 0)

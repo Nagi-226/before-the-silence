@@ -34,6 +34,11 @@
 
   "feedback": {
     "hurtFlashTime": 0.2,
-    "attackPoseTime": 0.18
+    "hurtKick": 0.1,
+    "attackPoseTime": 0.18,
+    "deathFallTime": 0.34,
+    "corpseStayTime": 1.25,
+    "corpseBlinkTime": 0.55,
+    "deathFadeTime": 0.4
   }
 }

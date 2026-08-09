@@ -27,6 +27,13 @@ var _enemy_name: Label
 var _end_story: Label
 var _end_stats: Label
 var _hurt_tween: Tween
+var _weapon_tween: Tween
+var _weapon_base_position := Vector2.ZERO
+var _weapon_base_rotation := 0.0
+var _weapon_base_scale := Vector2.ONE
+var _weapon_id := "pistol"
+var _weapon_anim_state := "idle"
+var _reload_label: Label
 
 
 func _ready() -> void:
@@ -36,6 +43,11 @@ func _ready() -> void:
 	for label in [ammo_label, health_label, armor_label, coin_label, end_title, end_hint]:
 		label.add_theme_font_override("font", font)
 	_build_narrative_ui()
+	_weapon_base_position = weapon_rect.position
+	_weapon_base_rotation = weapon_rect.rotation
+	_weapon_base_scale = weapon_rect.scale
+	weapon_rect.pivot_offset = weapon_rect.size * Vector2(0.5, 0.82)
+	_build_weapon_feedback(font)
 
 
 func _build_narrative_ui() -> void:
@@ -70,15 +82,110 @@ func _build_narrative_ui() -> void:
 	end_vbox.move_child(_end_stats, 2)
 
 
+func _build_weapon_feedback(font: Font) -> void:
+	_reload_label = Label.new()
+	_reload_label.add_theme_font_override("font", font)
+	_reload_label.add_theme_font_size_override("font_size", 16)
+	_reload_label.add_theme_color_override("font_color", UIStyle.ACCENT)
+	_reload_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	_reload_label.set_anchors_preset(Control.PRESET_CENTER_BOTTOM)
+	_reload_label.position = Vector2(-150, -206)
+	_reload_label.size = Vector2(300, 28)
+	_reload_label.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	_reload_label.visible = false
+	add_child(_reload_label)
+
+
 func update_ammo(clip: int, reserve: int) -> void:
 	ammo_label.text = "%s  弹药  %d / %d" % [_weapon_name, clip, reserve]
 
 
 func update_weapon(weapon_name: String, viewmodel: String) -> void:
 	_weapon_name = weapon_name
+	_weapon_id = "smg" if viewmodel.to_lower().contains("smg") else "pistol"
+	_reset_weapon_pose()
 	var path := "res://assets/images/" + viewmodel
 	if ResourceLoader.exists(path):
 		weapon_rect.texture = load(path)
+
+
+func play_weapon_fire() -> void:
+	if _weapon_anim_state == "reload":
+		return
+	if _weapon_tween and _weapon_tween.is_valid():
+		_weapon_tween.kill()
+	_weapon_anim_state = "fire"
+	var kick := Vector2(3.0, 16.0) if _weapon_id == "pistol" else Vector2(-2.0, 9.0)
+	var turn := -0.055 if _weapon_id == "pistol" else 0.025
+	weapon_rect.position = _weapon_base_position + kick
+	weapon_rect.rotation = _weapon_base_rotation + turn
+	weapon_rect.scale = _weapon_base_scale * Vector2(1.04, 0.96)
+	_weapon_tween = create_tween().set_parallel(true)
+	_weapon_tween.set_pause_mode(Tween.TWEEN_PAUSE_STOP)
+	_weapon_tween.set_trans(Tween.TRANS_BACK).set_ease(Tween.EASE_OUT)
+	_weapon_tween.tween_property(weapon_rect, "position", _weapon_base_position, 0.11)
+	_weapon_tween.tween_property(weapon_rect, "rotation", _weapon_base_rotation, 0.11)
+	_weapon_tween.tween_property(weapon_rect, "scale", _weapon_base_scale, 0.11)
+	_weapon_tween.chain().tween_callback(func(): _weapon_anim_state = "idle")
+
+
+## 两把武器使用不同轮廓的换弹动作，后续可无缝替换为逐帧手部素材。
+func play_weapon_reload(weapon_id: String, duration: float) -> void:
+	if _weapon_tween and _weapon_tween.is_valid():
+		_weapon_tween.kill()
+	_weapon_id = weapon_id
+	_weapon_anim_state = "reload"
+	_reload_label.text = "%s · 更换弹匣" % _weapon_name
+	_reload_label.visible = true
+	_reload_label.modulate.a = 1.0
+	_weapon_tween = create_tween()
+	_weapon_tween.set_pause_mode(Tween.TWEEN_PAUSE_STOP)
+	if weapon_id == "smg":
+		_weapon_tween.set_trans(Tween.TRANS_QUAD).set_ease(Tween.EASE_IN_OUT)
+		_weapon_tween.tween_property(weapon_rect, "position", _weapon_base_position + Vector2(-82, 92), duration * 0.28)
+		_weapon_tween.parallel().tween_property(weapon_rect, "rotation", -0.28, duration * 0.28)
+		_weapon_tween.tween_property(weapon_rect, "position", _weapon_base_position + Vector2(74, 78), duration * 0.34)
+		_weapon_tween.parallel().tween_property(weapon_rect, "rotation", 0.2, duration * 0.34)
+	else:
+		_weapon_tween.set_trans(Tween.TRANS_BACK).set_ease(Tween.EASE_IN_OUT)
+		_weapon_tween.tween_property(weapon_rect, "position", _weapon_base_position + Vector2(58, 56), duration * 0.3)
+		_weapon_tween.parallel().tween_property(weapon_rect, "rotation", 0.72, duration * 0.3)
+		_weapon_tween.tween_property(weapon_rect, "position", _weapon_base_position + Vector2(35, 74), duration * 0.3)
+		_weapon_tween.parallel().tween_property(weapon_rect, "rotation", 0.42, duration * 0.3)
+	_weapon_tween.set_trans(Tween.TRANS_QUAD).set_ease(Tween.EASE_OUT)
+	_weapon_tween.tween_property(weapon_rect, "position", _weapon_base_position, duration * 0.38)
+	_weapon_tween.parallel().tween_property(weapon_rect, "rotation", _weapon_base_rotation, duration * 0.38)
+	_weapon_tween.tween_callback(_finish_weapon_reload_visual)
+
+
+func finish_weapon_reload() -> void:
+	if _weapon_anim_state == "reload":
+		if _weapon_tween and _weapon_tween.is_valid():
+			_weapon_tween.kill()
+		_finish_weapon_reload_visual()
+
+
+func is_weapon_reloading() -> bool:
+	return _weapon_anim_state == "reload"
+
+
+func _finish_weapon_reload_visual() -> void:
+	_weapon_anim_state = "idle"
+	_reload_label.visible = false
+	weapon_rect.position = _weapon_base_position
+	weapon_rect.rotation = _weapon_base_rotation
+	weapon_rect.scale = _weapon_base_scale
+
+
+func _reset_weapon_pose() -> void:
+	if _weapon_tween and _weapon_tween.is_valid():
+		_weapon_tween.kill()
+	_weapon_anim_state = "idle"
+	if _reload_label:
+		_reload_label.visible = false
+	weapon_rect.position = _weapon_base_position
+	weapon_rect.rotation = _weapon_base_rotation
+	weapon_rect.scale = _weapon_base_scale
 
 
 func update_health(current: int, max_hp: int) -> void:

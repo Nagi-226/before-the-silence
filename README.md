@@ -120,7 +120,7 @@ cmake --build build --config Release --target RetroFPS
 ## 测试
 
 ```bash
-# Godot 版冒烟测试（24 断言：武器持有模型 / 场景拾取 / Q 与滚轮切换 / 金币 / 射击 / 通关）
+# Godot 版冒烟测试（53 断言：世界生成 / 武器与升级 / 防护服 / 动画表现 / 射击 / 通关）
 godot --path godot --headless res://scenes/tests/SmokeTest.tscn
 
 # C++ 版单元测试（127 项）
