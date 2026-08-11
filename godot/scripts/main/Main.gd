@@ -60,6 +60,9 @@ func _connect_player() -> void:
 	player.fired.connect(func():
 		GameData.play_sfx("Shoot")
 		hud.play_weapon_fire())
+	player.pump_started.connect(func(duration: float):
+		GameData.play_sfx("ReloadStart")
+		hud.play_weapon_pump(duration))
 	player.reload_started.connect(func():
 		GameData.play_sfx("ReloadStart")
 		hud.play_weapon_reload(player.weapon_id(), player.weapon_reload_time()))

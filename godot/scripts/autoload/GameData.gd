@@ -6,6 +6,7 @@ var player_cfg := {}
 var weapons_cfg := []
 var weapons_shared_reserve := 90
 var weapon_pickup_spawns := []  # [{weapon, map, x, y}] 场景内武器拾取点
+var shell_spawns := []  # [{map, x, y}] 12号霰弹补给生成点
 var component_levels := []  # [{tier, weapons:{id:{clipSize, damage, auto?}}}] 通用武器升级组件数值表
 var component_spawns := []  # [{tier, map, x, y}] 升级组件生成点
 var component_fire_rate_add := 0.0  # 每阶组件附加射速提升（合并原神经加速器职能）
@@ -35,6 +36,7 @@ func _ready() -> void:
 	weapons_cfg = weapons.get("weapons", [])
 	weapons_shared_reserve = int(weapons.get("sharedReserve", 90))
 	weapon_pickup_spawns = weapons.get("pickupSpawns", [])
+	shell_spawns = weapons.get("shellSpawns", [])
 	var comps: Dictionary = weapons.get("upgradeComponents", {})
 	component_levels = comps.get("levels", [])
 	component_spawns = comps.get("spawns", [])

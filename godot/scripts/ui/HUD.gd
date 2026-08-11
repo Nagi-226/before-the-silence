@@ -4,6 +4,9 @@ extends CanvasLayer
 ## 中文使用系统字体 微软雅黑，避免打包 CJK 字体文件
 
 const MiniMapScript := preload("res://scripts/ui/MiniMap.gd")
+const DEFAULT_VIEWMODEL_RECT := Rect2(-48.0, -180.0, 96.0, 180.0)
+const SHOTGUN_VIEWMODEL_RECT := Rect2(-80.0, -200.0, 160.0, 200.0)
+const SHOTGUN_VIEWMODEL_SCALE := Vector2(1.20, 1.0)
 
 @onready var crosshair: TextureRect = $Crosshair
 @onready var ammo_label: Label = $AmmoLabel
@@ -31,6 +34,7 @@ var _weapon_tween: Tween
 var _weapon_base_position := Vector2.ZERO
 var _weapon_base_rotation := 0.0
 var _weapon_base_scale := Vector2.ONE
+var _weapon_default_scale := Vector2.ONE
 var _weapon_id := "pistol"
 var _weapon_anim_state := "idle"
 var _reload_label: Label
@@ -45,7 +49,8 @@ func _ready() -> void:
 	_build_narrative_ui()
 	_weapon_base_position = weapon_rect.position
 	_weapon_base_rotation = weapon_rect.rotation
-	_weapon_base_scale = weapon_rect.scale
+	_weapon_default_scale = weapon_rect.scale
+	_weapon_base_scale = _weapon_default_scale
 	weapon_rect.pivot_offset = weapon_rect.size * Vector2(0.5, 0.82)
 	_build_weapon_feedback(font)
 
@@ -102,11 +107,29 @@ func update_ammo(clip: int, reserve: int) -> void:
 
 func update_weapon(weapon_name: String, viewmodel: String) -> void:
 	_weapon_name = weapon_name
-	_weapon_id = "smg" if viewmodel.to_lower().contains("smg") else "pistol"
+	var vm := viewmodel.to_lower()
+	if vm.contains("shotgun"):
+		_weapon_id = "shotgun"
+	elif vm.contains("smg"):
+		_weapon_id = "smg"
+	else:
+		_weapon_id = "pistol"
+	_apply_weapon_geometry()
+	_weapon_base_scale = _weapon_default_scale * (SHOTGUN_VIEWMODEL_SCALE if _weapon_id == "shotgun" else Vector2.ONE)
 	_reset_weapon_pose()
 	var path := "res://assets/images/" + viewmodel
 	if ResourceLoader.exists(path):
 		weapon_rect.texture = load(path)
+
+
+func _apply_weapon_geometry() -> void:
+	var rect := SHOTGUN_VIEWMODEL_RECT if _weapon_id == "shotgun" else DEFAULT_VIEWMODEL_RECT
+	weapon_rect.offset_left = rect.position.x
+	weapon_rect.offset_top = rect.position.y
+	weapon_rect.offset_right = rect.end.x
+	weapon_rect.offset_bottom = rect.end.y
+	weapon_rect.pivot_offset = Vector2(rect.size.x * 0.5, rect.size.y if _weapon_id == "shotgun" else rect.size.y * 0.82)
+	_weapon_base_position = weapon_rect.position
 
 
 func play_weapon_fire() -> void:
@@ -129,13 +152,34 @@ func play_weapon_fire() -> void:
 	_weapon_tween.chain().tween_callback(func(): _weapon_anim_state = "idle")
 
 
+## 泵动式霰弹枪：击发后下拉-回推的上膛动作（DOOM 式节奏）。
+## 二阶组件后转半自动/全自动，Player 不再发 pump_started，本函数即不再触发。
+func play_weapon_pump(duration: float) -> void:
+	if _weapon_anim_state == "reload":
+		return
+	if _weapon_tween and _weapon_tween.is_valid():
+		_weapon_tween.kill()
+	_weapon_anim_state = "pump"
+	var down := _weapon_base_position + Vector2(6.0, 22.0)
+	var half := clampf(duration * 0.45, 0.08, 0.3)
+	_weapon_tween = create_tween()
+	_weapon_tween.set_pause_mode(Tween.TWEEN_PAUSE_STOP)
+	_weapon_tween.set_trans(Tween.TRANS_QUAD).set_ease(Tween.EASE_IN_OUT)
+	_weapon_tween.tween_property(weapon_rect, "position", down, half)
+	_weapon_tween.parallel().tween_property(weapon_rect, "rotation", _weapon_base_rotation + 0.06, half)
+	_weapon_tween.set_trans(Tween.TRANS_QUAD).set_ease(Tween.EASE_OUT)
+	_weapon_tween.tween_property(weapon_rect, "position", _weapon_base_position, half)
+	_weapon_tween.parallel().tween_property(weapon_rect, "rotation", _weapon_base_rotation, half)
+	_weapon_tween.tween_callback(func(): _weapon_anim_state = "idle")
+
+
 ## 两把武器使用不同轮廓的换弹动作，后续可无缝替换为逐帧手部素材。
 func play_weapon_reload(weapon_id: String, duration: float) -> void:
 	if _weapon_tween and _weapon_tween.is_valid():
 		_weapon_tween.kill()
 	_weapon_id = weapon_id
 	_weapon_anim_state = "reload"
-	_reload_label.text = "%s · 更换弹匣" % _weapon_name
+	_reload_label.text = "%s · 装填霰弹" % _weapon_name if weapon_id == "shotgun" else "%s · 更换弹匣" % _weapon_name
 	_reload_label.visible = true
 	_reload_label.modulate.a = 1.0
 	_weapon_tween = create_tween()

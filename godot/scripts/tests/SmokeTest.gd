@@ -3,6 +3,7 @@ extends Node
 ## 覆盖: 世界生成(含a/w移除与防护服生成) / 武器持有模型 / 武器拾取 /
 ##       Q+滚轮循环切换 / 金币拾取 / 满血拒收急救包 / 防护服充能与优先承伤 /
 ##       通用升级组件(顺序拦截+一二三级数值+射速叠加+满级拒收) /
+##       霰弹枪(泵动配置/拾取/单发弹丸数/12号霰弹补给) /
 ##       子弹命中敌人 / 弹药消耗 / 武器动画 / 敌人死亡流程 / 终点旗通关判定
 ## 运行: godot --path godot --headless res://scenes/tests/SmokeTest.tscn
 
@@ -20,6 +21,7 @@ var _ammo_before := 0
 var _noop_test_done := false
 var _cycle_test_done := false
 var _components_test_done := false
+var _shotgun_test_done := false
 var _health_test_done := false
 var _death_test_done := false
 var _flag_test_done := false
@@ -47,6 +49,7 @@ func _process(_delta: float) -> void:
 		55: _check_pickup()
 		56: _test_health_full()
 		57: _test_components()
+		58: _test_shotgun()
 		85: _setup_shoot()
 		130: _check_shoot()
 		135: _check_death_collision()
@@ -64,6 +67,7 @@ func _check_world_built() -> void:
 	_report(enemies.size() >= 10, "敌人数量: %d (期望 >= 10)" % enemies.size())
 	var pickup_count := 0
 	var has_weapon_pickup := false
+	var has_shotgun_pickup := false
 	var has_comp1 := false
 	var has_comp2 := false
 	var has_comp3 := false
@@ -74,6 +78,8 @@ func _check_world_built() -> void:
 			pickup_count += 1
 			if c.symbol == "W":
 				has_weapon_pickup = true
+			elif c.symbol == "T":
+				has_shotgun_pickup = true
 			elif c.symbol == "u":
 				has_comp1 = true
 			elif c.symbol == "U":
@@ -86,6 +92,8 @@ func _check_world_built() -> void:
 				legacy_count += 1
 	_report(pickup_count >= 20, "拾取物数量: %d (期望 >= 20)" % pickup_count)
 	_report(has_weapon_pickup, "冲锋枪拾取物已按配置生成")
+	_report(has_shotgun_pickup, "霰弹枪拾取物已按配置生成（北部仓库）")
+	_report(_count_symbol("s") == 8, "12号霰弹补给: %d 处 (期望 8)" % _count_symbol("s"))
 	_report(has_comp1 and has_comp2 and has_comp3, "一/二/三级升级组件已按配置生成")
 	_report(has_armor, "防护服能量补给已生成（a 符号位改造）")
 	_report(legacy_count == 0, "扩展弹匣/神经加速器已实机移除 (残留=%d)" % legacy_count)
@@ -139,15 +147,21 @@ func _test_initial_noop() -> void:
 
 
 func _check_weapons_cfg() -> void:
-	_report(_player.weapons.size() == 2, "双武器配置: %d 把 (期望 2)" % _player.weapons.size())
-	if _player.weapons.size() == 2:
+	_report(_player.weapons.size() == 3, "三武器配置: %d 把 (期望 3)" % _player.weapons.size())
+	if _player.weapons.size() == 3:
 		var pistol: Dictionary = _player.weapons[0]
 		var smg: Dictionary = _player.weapons[1]
+		var sg: Dictionary = _player.weapons[2]
 		_report(pistol["auto"] == false and int(pistol["clipSize"]) == 20,
 			"手枪: 半自动 弹匣 %d (期望 20)" % int(pistol["clipSize"]))
 		_report(smg["auto"] == true and str(smg["displayName"]) == "冲锋枪",
 			"冲锋枪: 全自动就绪")
-	_report(_player.weapon_owned.size() == 2 and _player.weapon_owned[0] and not _player.weapon_owned[1],
+		_report(str(sg["id"]) == "shotgun" and int(sg["clipSize"]) == 8
+			and int(sg["pellets"]) == 6 and int(sg["damage"]) == 20
+			and sg["auto"] == false and sg["pump"] == true,
+			"霰弹枪: 泵动 8发/6弹丸/伤害%d" % int(sg["damage"]))
+	_report(_player.weapon_owned.size() == 3 and _player.weapon_owned[0]
+		and not _player.weapon_owned[1] and not _player.weapon_owned[2],
 		"初始持有模型: 仅手枪")
 	_report(_player.health_max == 100, "玩家血量上限: %d (期望 100)" % _player.health_max)
 
@@ -162,7 +176,7 @@ func _setup_weapon_pickup() -> void:
 
 
 func _check_weapon_grant() -> void:
-	_report(_player.weapon_owned.size() == 2 and _player.weapon_owned[1],
+	_report(_player.weapon_owned.size() == 3 and _player.weapon_owned[1],
 		"拾取后持有冲锋枪")
 	_report(_player.weapon_index == 1, "拾取后自动切换到冲锋枪 (index=%d)" % _player.weapon_index)
 	_report(_player.ammo_clip == 30, "冲锋枪弹匣补满: %d (期望 30)" % _player.ammo_clip)
@@ -264,6 +278,7 @@ func _test_components() -> void:
 		await get_tree().physics_frame
 	var pistol: Dictionary = _player.weapons[0]
 	var smg: Dictionary = _player.weapons[1]
+	var sg: Dictionary = _player.weapons[2]
 	_report(_player.weapon_tier == 1
 		and int(pistol["clipSize"]) == 25 and int(pistol["damage"]) == 36,
 		"一级组件生效: 手枪 tier=%d %d发/伤害%d (期望 1/25/36)"
@@ -271,6 +286,9 @@ func _test_components() -> void:
 	_report(int(smg["clipSize"]) == 40 and int(smg["damage"]) == 36,
 		"一级组件生效: 冲锋枪 %d发/伤害%d (期望 40/36)"
 		% [int(smg["clipSize"]), int(smg["damage"])])
+	_report(int(sg["clipSize"]) == 12 and int(sg["pellets"]) == 7 and int(sg["damage"]) == 25,
+		"一级组件生效: 霰弹枪 %d发/%d弹丸/伤害%d (期望 12/7/25)"
+		% [int(sg["clipSize"]), int(sg["pellets"]), int(sg["damage"])])
 
 	# 3) 拾取二级组件: 手枪 30发/伤害45，冲锋枪 50发/伤害45，射速 →30
 	_teleport_to_symbol("U", "二级组件")
@@ -283,6 +301,10 @@ func _test_components() -> void:
 	_report(int(smg["clipSize"]) == 50 and int(smg["damage"]) == 45,
 		"二级组件生效: 冲锋枪 %d发/伤害%d (期望 50/45)"
 		% [int(smg["clipSize"]), int(smg["damage"])])
+	_report(int(sg["clipSize"]) == 16 and int(sg["pellets"]) == 8 and int(sg["damage"]) == 30
+		and sg["pump"] == false and sg["auto"] == false,
+		"二级组件生效: 霰弹枪 %d发/%d弹丸/伤害%d 泵动=%s (期望 16/8/30/false=转半自动)"
+		% [int(sg["clipSize"]), int(sg["pellets"]), int(sg["damage"]), str(sg["pump"])])
 
 	# 4) 拾取三级组件: 手枪 33发/伤害55+转全自动，冲锋枪 60发/伤害55，射速封顶 40
 	_teleport_to_symbol("v", "三级组件")
@@ -296,6 +318,13 @@ func _test_components() -> void:
 	_report(int(smg["clipSize"]) == 60 and int(smg["damage"]) == 55,
 		"三级组件生效: 冲锋枪 %d发/伤害%d (期望 60/55)"
 		% [int(smg["clipSize"]), int(smg["damage"])])
+	_report(int(sg["clipSize"]) == 24 and int(sg["pellets"]) == 10 and int(sg["damage"]) == 40
+		and sg["auto"] == true,
+		"三级组件生效: 霰弹枪 %d发/%d弹丸/伤害%d/全自动=%s (期望 24/10/40/true)"
+		% [int(sg["clipSize"]), int(sg["pellets"]), int(sg["damage"]), str(sg["auto"])])
+	var sg_rate := 1.0 / float(sg["fireInterval"])
+	_report(absf(sg_rate - 3.0) < 0.01,
+		"霰弹枪三阶全自动低速: 射速%.1f (期望 3.0，独立于+10叠加)" % sg_rate)
 	var pistol_rate := 1.0 / float(pistol["fireInterval"])
 	var smg_rate := 1.0 / float(smg["fireInterval"])
 	_report(absf(pistol_rate - 40.0) < 0.01 and absf(smg_rate - 40.0) < 0.01,
@@ -307,9 +336,50 @@ func _test_components() -> void:
 	_components_test_done = true
 
 
-func _setup_shoot() -> void:
-	while not _components_test_done:  # 组件测试传送中，避免抢占玩家位置
+## 霰弹枪端到端（组件三阶之后）: 北部仓库拾取 → 自动切换/弹匣补满 →
+## 单发弹丸数验证 → 12号霰弹补给 +6
+func _test_shotgun() -> void:
+	while not _components_test_done:  # 串行传送，避免抢占玩家位置
 		await get_tree().physics_frame
+	var sg: Dictionary = _player.weapons[2]
+
+	_teleport_to_symbol("T", "霰弹枪")
+	for i in 4:
+		await get_tree().physics_frame
+	_report(_player.weapon_owned[2], "拾取后持有霰弹枪")
+	_report(_player.weapon_index == 2, "拾取后自动切换到霰弹枪 (index=%d)" % _player.weapon_index)
+	_report(_player.ammo_clip == int(sg["clipSize"]),
+		"霰弹枪弹匣补满: %d (期望 %d，三阶 24)" % [_player.ammo_clip, int(sg["clipSize"])])
+
+	# 弹丸数: 直接击发一发，数玩家弹道实体增量（敌对弹道 from_player=false 不计）
+	var vp: Node = _main.get_node("Viewport")
+	var count_player_projs := func() -> int:
+		var n := 0
+		for c in vp.get_children():
+			if "from_player" in c and c.from_player:
+				n += 1
+		return n
+	var before: int = count_player_projs.call()
+	var clip_before: int = _player.ammo_clip
+	_player._shoot()
+	_report(count_player_projs.call() - before == int(sg["pellets"]),
+		"单发弹丸: %d 颗 (期望 %d，三阶 10)" % [count_player_projs.call() - before, int(sg["pellets"])])
+	_report(_player.ammo_clip == clip_before - 1,
+		"霰弹一发耗一壳: %d -> %d" % [clip_before, _player.ammo_clip])
+
+	var reserve_before: int = _player.ammo_reserve
+	_teleport_to_symbol("s", "12号霰弹")
+	for i in 4:
+		await get_tree().physics_frame
+	_report(_player.ammo_reserve == reserve_before + 6,
+		"12号霰弹补给: 备弹 %d -> %d (期望 +6)" % [reserve_before, _player.ammo_reserve])
+	_shotgun_test_done = true
+
+
+func _setup_shoot() -> void:
+	while not _components_test_done or not _shotgun_test_done:  # 传送测试串行，避免抢占玩家位置
+		await get_tree().physics_frame
+	_player._switch_to(0)  # 切回手枪：命中断言按单发子弹伤害校验（霰弹为多弹丸）
 	var enemy: Node
 	for e in get_tree().get_nodes_in_group("enemies"):
 		if is_instance_valid(e):
@@ -403,7 +473,7 @@ func _check_flag() -> void:
 
 
 func _finish() -> void:
-	while not _noop_test_done or not _cycle_test_done or not _components_test_done or not _health_test_done or not _death_test_done or not _flag_test_done:
+	while not _noop_test_done or not _cycle_test_done or not _components_test_done or not _shotgun_test_done or not _health_test_done or not _death_test_done or not _flag_test_done:
 		await get_tree().physics_frame
 	print("[SMOKE] 结果: %s" % ("全部通过" if not _fail else "存在失败项"))
 	get_tree().quit(1 if _fail else 0)
