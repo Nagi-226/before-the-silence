@@ -4,6 +4,9 @@ extends CanvasLayer
 ## 中文使用系统字体 微软雅黑，避免打包 CJK 字体文件
 
 const MiniMapScript := preload("res://scripts/ui/MiniMap.gd")
+const DEFAULT_VIEWMODEL_RECT := Rect2(-48.0, -180.0, 96.0, 180.0)
+const SHOTGUN_VIEWMODEL_RECT := Rect2(-80.0, -200.0, 160.0, 200.0)
+const SHOTGUN_VIEWMODEL_SCALE := Vector2(1.20, 1.0)
 
 @onready var crosshair: TextureRect = $Crosshair
 @onready var ammo_label: Label = $AmmoLabel
@@ -31,6 +34,7 @@ var _weapon_tween: Tween
 var _weapon_base_position := Vector2.ZERO
 var _weapon_base_rotation := 0.0
 var _weapon_base_scale := Vector2.ONE
+var _weapon_default_scale := Vector2.ONE
 var _weapon_id := "pistol"
 var _weapon_anim_state := "idle"
 var _reload_label: Label
@@ -45,7 +49,8 @@ func _ready() -> void:
 	_build_narrative_ui()
 	_weapon_base_position = weapon_rect.position
 	_weapon_base_rotation = weapon_rect.rotation
-	_weapon_base_scale = weapon_rect.scale
+	_weapon_default_scale = weapon_rect.scale
+	_weapon_base_scale = _weapon_default_scale
 	weapon_rect.pivot_offset = weapon_rect.size * Vector2(0.5, 0.82)
 	_build_weapon_feedback(font)
 
@@ -109,10 +114,22 @@ func update_weapon(weapon_name: String, viewmodel: String) -> void:
 		_weapon_id = "smg"
 	else:
 		_weapon_id = "pistol"
+	_apply_weapon_geometry()
+	_weapon_base_scale = _weapon_default_scale * (SHOTGUN_VIEWMODEL_SCALE if _weapon_id == "shotgun" else Vector2.ONE)
 	_reset_weapon_pose()
 	var path := "res://assets/images/" + viewmodel
 	if ResourceLoader.exists(path):
 		weapon_rect.texture = load(path)
+
+
+func _apply_weapon_geometry() -> void:
+	var rect := SHOTGUN_VIEWMODEL_RECT if _weapon_id == "shotgun" else DEFAULT_VIEWMODEL_RECT
+	weapon_rect.offset_left = rect.position.x
+	weapon_rect.offset_top = rect.position.y
+	weapon_rect.offset_right = rect.end.x
+	weapon_rect.offset_bottom = rect.end.y
+	weapon_rect.pivot_offset = Vector2(rect.size.x * 0.5, rect.size.y if _weapon_id == "shotgun" else rect.size.y * 0.82)
+	_weapon_base_position = weapon_rect.position
 
 
 func play_weapon_fire() -> void:
