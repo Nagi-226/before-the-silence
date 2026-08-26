@@ -1,0 +1,13 @@
+{
+  "_comment": "P2 地形扩展层 — Godot 侧专属配置，不进入与 C++ 版同源的 LevelData.gd。P2a 夜空室外区: 庭院自 map0 东侧向外扩出, 由 LevelGenerator.build 时按本配置追加围墙/地面/露天标记。坐标系为地图格 (col,row)，与 LevelData 符号图一致。",
+  "courtyard": {
+    "map": 0,
+    "rect": { "x": 167, "y": 26, "w": 25, "h": 13 },
+    "doorway": { "x": 167, "y": 32, "h": 2 },
+    "wallSymbol": "S",
+    "groundTexture": "res://assets/images/Floor Tile.bmp",
+    "floorTint": [0.44, 0.48, 0.55]
+  },
+  "miniMapFollow": true,
+  "followView": { "w": 96, "h": 54 }
+}
