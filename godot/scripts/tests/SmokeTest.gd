@@ -36,7 +36,9 @@ func _ready() -> void:
 	_entities = _main.get_node("Viewport/Entities")
 
 
-func _process(_delta: float) -> void:
+# 调度挂在物理帧而非渲染帧：headless 下渲染不受垂直同步约束，
+# 渲染帧可能领先物理步，曾导致"子弹命中敌人"在弹丸飞到前被提前校验
+func _physics_process(_delta: float) -> void:
 	_frame += 1
 	match _frame:
 		2: _main.dismiss_briefing()
