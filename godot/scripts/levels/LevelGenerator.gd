@@ -91,6 +91,8 @@ func build(map_index: int, entity_root: Node3D) -> Vector3:
 	_build_walls(buckets)
 	_build_floor_ceiling()
 	_build_collision(buckets)
+	_build_facade(map_index)
+	_spawn_props(map_index)
 	_spawn_weapon_pickups(map_index, entity_root)
 	_spawn_shell_pickups(map_index, entity_root)
 	_spawn_upgrade_components(map_index, entity_root)
@@ -164,6 +166,115 @@ func _apply_courtyard(map_index: int, buckets: Dictionary) -> void:
 					wall_cells[cell] = symbol
 			else:
 				_courtyard_cells.append(cell)
+
+
+## 混合路线阶段一: 装饰外立面。现有墙顶(2.6m)之上叠 stories 层窗户带 + 女儿墙,
+## 总高≈三层体量, 兑现"出门回头见三层仓库"的视觉说服力。纯布景:
+## 不登记 wall_cells、不进 buckets、不建碰撞 → 碰撞/AI/子弹/小地图零改动。
+## 立面朝 +X(庭院侧)竖立, 与原墙东面留 offset 防共面闪烁。
+func _build_facade(map_index: int) -> void:
+	var cfg: Dictionary = GameData.level_ext_cfg.get("facade", {})
+	if cfg.is_empty() or int(cfg.get("map", -1)) != map_index:
+		return
+	var col := int(cfg.get("col", 0))
+	var row_min := int(cfg.get("rowMin", 0))
+	var row_max := int(cfg.get("rowMax", row_min))
+	var extend := int(cfg.get("extendRows", 0))
+	var stories := maxi(1, int(cfg.get("stories", 2)))
+	var story_h := float(cfg.get("storyHeight", WorldConst.WALL_HEIGHT))
+	var r0 := row_min - extend
+	var r1 := row_max + extend
+	var width := float(r1 - r0 + 1) * WorldConst.CELL
+	var height := story_h * float(stories)
+	var base_y := WorldConst.WALL_HEIGHT
+	var face_x := (col + 1) * WorldConst.CELL + float(cfg.get("offset", 0.05))
+	var z_center := (float(r0 + r1 + 1) / 2.0) * WorldConst.CELL
+
+	var root := Node3D.new()
+	root.name = "Facade"
+	add_child(root)
+
+	# 窗户带主体: 单片竖面, 纹理横向平铺保持窗户近方形
+	var win_tex: Variant = load(str(cfg.get("windowTexture", "")))
+	if win_tex == null:
+		push_warning("facade.windowTexture 缺失，跳过外立面")
+		root.queue_free()
+		return
+	var band_mat := StandardMaterial3D.new()
+	band_mat.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
+	band_mat.albedo_texture = win_tex
+	band_mat.uv1_scale = Vector3(float(cfg.get("uvScaleX", 1.0)), 1.0, 1.0)
+	var band := QuadMesh.new()
+	band.size = Vector2(width, height)
+	band.material = band_mat
+	var band_mi := MeshInstance3D.new()
+	band_mi.name = "FacadeBand"
+	band_mi.mesh = band
+	band_mi.rotation.y = PI / 2  # Quad 法线 +Z → 转向 +X(庭院侧)
+	band_mi.position = Vector3(face_x, base_y + height * 0.5, z_center)
+	root.add_child(band_mi)
+
+	# 女儿墙/屋檐: 压顶一条, 用板材贴图, 向前(庭院侧)微挑
+	if bool(cfg.get("parapet", false)):
+		var parapet_tex: Variant = load(str(cfg.get("wallTexture", "")))
+		if parapet_tex != null:
+			var p_mat := StandardMaterial3D.new()
+			p_mat.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
+			p_mat.albedo_texture = parapet_tex
+			var p_box := BoxMesh.new()
+			p_box.size = Vector3(0.5, 0.5, width)
+			p_box.material = p_mat
+			var p_mi := MeshInstance3D.new()
+			p_mi.name = "FacadeParapet"
+			p_mi.mesh = p_box
+			p_mi.position = Vector3(
+				face_x - 0.2, base_y + height + 0.25, z_center)
+			root.add_child(p_mi)
+
+
+const PROP_PIXEL_SIZE := 0.02  # 道具 Sprite3D 基准米/像素(128px 精灵≈2.56m), 配置 scale 乘数微调
+
+
+## 混合路线阶段一: 庭院 billboard 道具(与敌人/拾取物同源技术)。
+## 首批不加碰撞(可穿过, 不干扰 AI/寻路); 不登记 wall_cells → 逻辑零侵入。
+## 精灵透明底自动落地: 扫描贴图最低不透明像素行对齐地面。
+func _spawn_props(map_index: int) -> void:
+	var props: Array = GameData.level_ext_cfg.get("props", [])
+	var idx := 0
+	for entry in props:
+		var ed: Dictionary = entry
+		if int(ed.get("map", -1)) != map_index:
+			continue
+		var tex_path := str(ed.get("sprite", ""))
+		var tex: Variant = load(tex_path) if ResourceLoader.exists(tex_path) else null
+		if tex == null:
+			push_warning("道具贴图缺失: " + tex_path)
+			continue
+		var sprite := Sprite3D.new()
+		sprite.name = "Prop_%d" % idx
+		sprite.texture = tex
+		sprite.billboard = BaseMaterial3D.BILLBOARD_ENABLED
+		sprite.texture_filter = BaseMaterial3D.TEXTURE_FILTER_NEAREST
+		sprite.pixel_size = PROP_PIXEL_SIZE * float(ed.get("scale", 1.0))
+		var h_px := float(sprite.texture.get_height())
+		var bottom_px := _opaque_bottom_row(sprite.texture)
+		sprite.position = _cell_center(int(ed.get("x", 0)), int(ed.get("y", 0))) \
+			+ Vector3(0.0, (bottom_px - h_px * 0.5) * sprite.pixel_size, 0.0)
+		sprite.add_to_group("props")
+		add_child(sprite)
+		idx += 1
+
+
+## 贴图自下而上首个不透明像素行(道具落地基准); 取不到图时退回 90% 高度兜底
+func _opaque_bottom_row(tex: Texture2D) -> float:
+	var img := tex.get_image()
+	if img == null:
+		return float(tex.get_height()) * 0.9
+	for y in range(img.get_height() - 1, -1, -1):
+		for x in img.get_width():
+			if img.get_pixel(x, y).a > 0.05:
+				return float(y)
+	return float(tex.get_height()) * 0.9
 
 
 ## 按 weapons.json 的 pickupSpawns 生成武器拾取物（smg="W" / shotgun="T"），

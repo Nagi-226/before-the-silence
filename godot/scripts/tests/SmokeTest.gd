@@ -5,7 +5,8 @@ extends Node
 ##       通用升级组件(顺序拦截+一二三级数值+射速叠加+满级拒收) /
 ##       霰弹枪(泵动配置/拾取/单发弹丸数/12号霰弹补给) /
 ##       子弹命中敌人 / 弹药消耗 / 武器动画 / 敌人死亡流程 / 终点旗通关判定 /
-##       P2a 夜空室外区(夜空环境/庭院外扩围墙环+门洞/露天格/天花板保留/小地图跟随)
+##       P2a 夜空室外区(夜空环境/庭院外扩围墙环+门洞/露天格/天花板保留/小地图跟随) /
+##       阶段一布景(装饰外立面高度/庭院道具数量/布景零逻辑侵入不变式)
 ## 运行: godot --path godot --headless res://scenes/tests/SmokeTest.tscn
 
 var _frame := 0
@@ -45,6 +46,7 @@ func _physics_process(_delta: float) -> void:
 		5: _check_world_built()
 		7: _check_weapons_cfg()
 		9: _test_p2a_terrain()
+		10: _test_facade_props()
 		8: _test_initial_noop()
 		12: _setup_weapon_pickup()
 		25: _check_weapon_grant()
@@ -216,6 +218,38 @@ func _test_p2a_terrain() -> void:
 	# P1.5 小地图跟随模式
 	var mm: Node = _main.get_node("HUD").get_node_or_null("MiniMap")
 	_report(mm != null and bool(mm.get("_follow")), "小地图跟随模式已激活")
+
+
+# 混合路线阶段一: 装饰外立面 + 庭院道具(零玩法逻辑改动)
+func _test_facade_props() -> void:
+	var fcfg: Dictionary = GameData.level_ext_cfg.get("facade", {})
+	var facade := _level.get_node_or_null("Facade")
+	_report(facade != null and not fcfg.is_empty(),
+		"阶段一装饰外立面已生成")
+	if facade != null and facade.get_node_or_null("FacadeBand") != null:
+		var band: MeshInstance3D = facade.get_node("FacadeBand")
+		var qm := band.mesh as QuadMesh
+		var top: float = band.position.y + qm.size.y * 0.5
+		var expect_top: float = WorldConst.WALL_HEIGHT \
+			+ float(fcfg.get("stories", 2)) * float(fcfg.get("storyHeight", WorldConst.WALL_HEIGHT))
+		_report(absf(top - expect_top) < 0.1,
+			"外立面顶高达三层体量: %.2fm (期望 %.2fm)" % [top, expect_top])
+
+	var pcfg: Array = GameData.level_ext_cfg.get("props", [])
+	var expect := 0
+	for p in pcfg:
+		if int((p as Dictionary).get("map", -1)) == 0:
+			expect += 1
+	var props := get_tree().get_nodes_in_group("props")
+	_report(props.size() == expect,
+		"庭院道具: %d 个 (期望 %d, 与配置一致)" % [props.size(), expect])
+
+	# 逻辑零侵入不变式: 布景(立面/道具)不进碰撞层 → 碰撞体数恒等于墙格数
+	var col_body := _level.get_node_or_null("WallCollision")
+	if col_body != null:
+		_report(col_body.get_child_count() == _level.wall_cells.size(),
+			"墙碰撞体数 == 墙格数(布景零逻辑侵入): %d == %d" \
+			% [col_body.get_child_count(), _level.wall_cells.size()])
 
 
 func _setup_weapon_pickup() -> void:

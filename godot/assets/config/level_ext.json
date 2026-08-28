@@ -8,6 +8,24 @@
     "groundTexture": "res://assets/images/Floor Tile.bmp",
     "floorTint": [0.44, 0.48, 0.55]
   },
+  "facade": {
+    "_comment": "阶段一装饰外立面: 现有墙顶(2.6m)之上叠两层窗户带至7.8m, 总高约三层体量。不进 wall_cells/碰撞/AI/小地图, 纯布景。uvScaleX 为窗户带横向平铺次数(保窗户近方形)。",
+    "map": 0,
+    "col": 167, "rowMin": 26, "rowMax": 38, "extendRows": 1,
+    "stories": 2, "storyHeight": 2.6,
+    "windowTexture": "res://assets/images/Facade Windows.bmp",
+    "wallTexture": "res://assets/images/Facade Panel.bmp",
+    "parapet": true,
+    "offset": 0.05,
+    "uvScaleX": 3.8
+  },
+  "props": [
+    { "map": 0, "sprite": "res://assets/sprites/Prop Rubble.png",     "x": 172, "y": 29, "scale": 0.5 },
+    { "map": 0, "sprite": "res://assets/sprites/Prop Crate.png",      "x": 176, "y": 35, "scale": 0.55 },
+    { "map": 0, "sprite": "res://assets/sprites/Prop Streetlamp.png", "x": 183, "y": 31, "scale": 0.95 },
+    { "map": 0, "sprite": "res://assets/sprites/Prop Deadtree.png",   "x": 188, "y": 28, "scale": 1.05 },
+    { "map": 0, "sprite": "res://assets/sprites/Prop Crate.png",      "x": 187, "y": 34, "scale": 0.45 }
+  ],
   "miniMapFollow": true,
   "followView": { "w": 96, "h": 54 }
 }
