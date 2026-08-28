@@ -5,6 +5,9 @@ extends Node3D
 ##   0-2=敌人(小/中/大)  H=生命 C=金币 A=弹药 h=生命上限升级
 ##   道具平衡（Godot 侧）: a/w 符号位改生 e(防护服能量)；每第 4 个 H 也改生 e
 ##   （急救包密度过高，匀一部分给防护服电池，生命包数量约为原来 3/4）
+## P2a 夜空室外区: 按 level_ext.json 的 courtyard 配置在原地图矩形之外向外扩出
+##   石墙庭院（西缘留门洞连通室内），只操作运行时几何桶，不触碰与 C++
+##   同源的 LevelData 地图数据。庭院位于天花板平面之外 → 室内屋顶自然形成屋檐。
 
 signal goal_reached
 
@@ -21,6 +24,9 @@ const FlagScene := preload("res://scenes/entities/GoalFlag.tscn")
 
 var wall_cells := {}  # Vector2i -> 符号，供 AI 视线/路径查询
 var _health_seen := 0  # H 符号序号（道具平衡换算用，build 时归零）
+var _courtyard_cells: Array[Vector2i] = []  # 本图庭院地板格（露天区，含门洞通道）
+var _courtyard_rect := Rect2i()  # 庭院外扩矩形（格坐标），size==Vector2i.ZERO 表示无庭院
+var _courtyard_tint := Color(1.0, 1.0, 1.0)
 
 
 func build(map_index: int, entity_root: Node3D) -> Vector3:
@@ -28,6 +34,8 @@ func build(map_index: int, entity_root: Node3D) -> Vector3:
 	var buckets := {"X": [], "M": [], "S": [], "G": []}
 	var spawn := Vector3.ZERO
 	_health_seen = 0
+	_courtyard_cells.clear()
+	_courtyard_rect = Rect2i()
 
 	for y in rows.size():
 		var row: String = rows[y]
@@ -79,6 +87,7 @@ func build(map_index: int, entity_root: Node3D) -> Vector3:
 					speed_pickup.symbol = "e"
 					entity_root.add_child(speed_pickup)
 
+	_apply_courtyard(map_index, buckets)
 	_build_walls(buckets)
 	_build_floor_ceiling()
 	_build_collision(buckets)
@@ -90,6 +99,71 @@ func build(map_index: int, entity_root: Node3D) -> Vector3:
 
 func is_wall(x: int, y: int) -> bool:
 	return wall_cells.has(Vector2i(x, y))
+
+
+## 庭院露天格集合（P2a，供测试与后续地形系统查询）
+func get_courtyard_cells() -> Array[Vector2i]:
+	return _courtyard_cells
+
+
+func has_courtyard() -> bool:
+	return not _courtyard_cells.is_empty()
+
+
+## P2a 庭院外扩: 在原地图矩形之外追加围墙环并登记露天格。
+## 门洞开在围墙环西缘（压住原边界列，消除隐形夹缝）。门洞格在原图中本就是
+## 东边界墙 —— 必须先移除原墙（渲染/碰撞/小地图均从 wall_cells+buckets 派生），
+## 否则门物理与逻辑上都打不开。天花板整片覆盖原地图矩形且庭院在其之外 →
+## 无需挖洞即得屋檐效果。
+func _apply_courtyard(map_index: int, buckets: Dictionary) -> void:
+	var cfg: Dictionary = GameData.level_ext_cfg.get("courtyard", {})
+	if cfg.is_empty() or int(cfg.get("map", -1)) != map_index:
+		return
+	var rect: Dictionary = cfg.get("rect", {})
+	if rect.is_empty():
+		push_warning("level_ext.courtyard 缺少 rect，跳过庭院外扩")
+		return
+	var x0 := int(rect.get("x", 0))
+	var y0 := int(rect.get("y", 0))
+	var w := int(rect.get("w", 0))
+	var h := int(rect.get("h", 0))
+	if w <= 2 or h <= 2:
+		push_warning("level_ext.courtyard.rect 尺寸无效 (%dx%d)，跳过庭院外扩" % [w, h])
+		return
+	var symbol := str(cfg.get("wallSymbol", "S"))
+	if not WALL_TEXTURES.has(symbol):
+		symbol = "S"
+	var tint: Array = cfg.get("floorTint", [])
+	if tint.size() >= 3:
+		_courtyard_tint = Color(float(tint[0]), float(tint[1]), float(tint[2]))
+
+	var doorway: Dictionary = cfg.get("doorway", {})
+	var door_x := int(doorway.get("x", x0))
+	var door_y := int(doorway.get("y", y0 + h / 2))
+	var door_h := maxi(1, int(doorway.get("h", 2)))
+
+	_courtyard_rect = Rect2i(x0, y0, w, h)
+	var x1 := x0 + w - 1
+	var y1 := y0 + h - 1
+	for cy in range(y0, y1 + 1):
+		for cx in range(x0, x1 + 1):
+			var cell := Vector2i(cx, cy)
+			var on_ring := cx == x0 or cx == x1 or cy == y0 or cy == y1
+			var on_door := cx == door_x and cy >= door_y and cy < door_y + door_h
+			if on_door:
+				# 门洞格本是东边界墙: 先移除原墙再放行（不登记露天格，
+				# 露天格仅统计矩形内部，与 (w-2)*(h-2) 断言一致）
+				wall_cells.erase(cell)
+				var center := _cell_center(cx, cy)
+				for s: String in buckets:
+					buckets[s].erase(center)
+			elif on_ring:
+				# 围墙环: 原图已有墙的格跳过（西缘压住原边界列），避免重复网格与碰撞体
+				if not wall_cells.has(cell):
+					buckets[symbol].append(_cell_center(cx, cy))
+					wall_cells[cell] = symbol
+			else:
+				_courtyard_cells.append(cell)
 
 
 ## 按 weapons.json 的 pickupSpawns 生成武器拾取物（smg="W" / shotgun="T"），
@@ -146,7 +220,8 @@ func _spawn_upgrade_components(map_index: int, entity_root: Node3D) -> void:
 		entity_root.add_child(pickup)
 
 
-## 目标格是地板则直接返回；否则按环向外搜索就近地板（配置容错）
+## 目标格是地板则直接返回；否则按环向外搜索就近地板（配置容错）。
+## 注意: 庭院格已登记进 wall_cells 的反义（非墙），本函数天然兼容庭院坐标
 func _find_floor(x: int, y: int) -> Vector2i:
 	if not is_wall(x, y):
 		return Vector2i(x, y)
@@ -165,12 +240,28 @@ func _cell_center(x: int, y: int) -> Vector3:
 
 
 func _build_walls(buckets: Dictionary) -> void:
-	var world_size := Vector3(
-		LevelData.WIDTH * WorldConst.CELL, WorldConst.WALL_HEIGHT,
-		LevelData.HEIGHT * WorldConst.CELL)
-	var map_aabb := AABB(
-		Vector3(0, 0, 0) - Vector3(WorldConst.CELL, 0, WorldConst.CELL) * 0.5,
-		world_size + Vector3(WorldConst.CELL, 0, WorldConst.CELL))
+	# 包围盒必须按实际墙格计算: 庭院围墙位于原地图矩形之外，
+	# 若沿用地图尺寸的固定包围盒，新增实例会被视锥剔除（MultiMesh custom_aabb 坑）
+	var half := WorldConst.CELL * 0.5
+	var minc := Vector3(INF, 0, INF)
+	var maxc := Vector3(-INF, 0, -INF)
+	for symbol in buckets:
+		for pos in buckets[symbol]:
+			minc = minc.min(pos)
+			maxc = maxc.max(pos)
+	var map_aabb: AABB
+	if maxc.x >= minc.x:
+		map_aabb = AABB(
+			Vector3(minc.x - half, 0, minc.z - half),
+			Vector3(maxc.x - minc.x + WorldConst.CELL, WorldConst.WALL_HEIGHT,
+				maxc.z - minc.z + WorldConst.CELL))
+	else:
+		# 无任何墙体时退回地图尺寸包围盒
+		var ws := Vector3(
+			LevelData.WIDTH * WorldConst.CELL, WorldConst.WALL_HEIGHT,
+			LevelData.HEIGHT * WorldConst.CELL)
+		map_aabb = AABB(Vector3(0, 0, 0) - Vector3(half, 0, half),
+			ws + Vector3(WorldConst.CELL, 0, WorldConst.CELL))
 
 	for symbol in buckets:
 		var cells: Array = buckets[symbol]
@@ -226,6 +317,30 @@ func _build_floor_ceiling() -> void:
 	ceil_mi.position = Vector3(plane_size.x * 0.5, WorldConst.WALL_HEIGHT, plane_size.y * 0.5)
 	ceil_mi.rotation.x = PI  # 平面朝下
 	add_child(ceil_mi)
+
+	# P2a 庭院地面覆层: 仅覆盖庭院矩形，暗色冷调区分室内地砖;
+	# 抬升 1cm 防止与室内大地板共面闪烁; 露天无顶 —— 夜空由 Main 场景环境提供
+	if _courtyard_rect.size.x > 0:
+		var cw := float(_courtyard_rect.size.x * WorldConst.CELL)
+		var ch := float(_courtyard_rect.size.y * WorldConst.CELL)
+		var ground_tex := str(GameData.level_ext_cfg.get("courtyard", {}) \
+			.get("groundTexture", "res://assets/images/Floor Tile.bmp"))
+		var ext_mat := StandardMaterial3D.new()
+		ext_mat.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
+		ext_mat.albedo_texture = load(ground_tex)
+		ext_mat.albedo_color = _courtyard_tint
+		ext_mat.uv1_scale = Vector3(cw / WorldConst.CELL, ch / WorldConst.CELL, 1)
+		var ext_mesh := PlaneMesh.new()
+		ext_mesh.size = Vector2(cw, ch)
+		ext_mesh.material = ext_mat
+		var ext_mi := MeshInstance3D.new()
+		ext_mi.name = "CourtyardFloor"
+		ext_mi.mesh = ext_mesh
+		ext_mi.position = Vector3(
+			(float(_courtyard_rect.position.x) + _courtyard_rect.size.x * 0.5) * WorldConst.CELL,
+			0.01,
+			(float(_courtyard_rect.position.y) + _courtyard_rect.size.y * 0.5) * WorldConst.CELL)
+		add_child(ext_mi)
 
 
 func _build_collision(buckets: Dictionary) -> void:

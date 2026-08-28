@@ -4,7 +4,8 @@ extends Node
 ##       Q+滚轮循环切换 / 金币拾取 / 满血拒收急救包 / 防护服充能与优先承伤 /
 ##       通用升级组件(顺序拦截+一二三级数值+射速叠加+满级拒收) /
 ##       霰弹枪(泵动配置/拾取/单发弹丸数/12号霰弹补给) /
-##       子弹命中敌人 / 弹药消耗 / 武器动画 / 敌人死亡流程 / 终点旗通关判定
+##       子弹命中敌人 / 弹药消耗 / 武器动画 / 敌人死亡流程 / 终点旗通关判定 /
+##       P2a 夜空室外区(夜空环境/庭院外扩围墙环+门洞/露天格/天花板保留/小地图跟随)
 ## 运行: godot --path godot --headless res://scenes/tests/SmokeTest.tscn
 
 var _frame := 0
@@ -13,7 +14,7 @@ var _fail := false
 var _main: Node
 var _player: Node
 var _level: Node
-var _entities: Node
+var _entities: Node3D
 
 var _enemy_target: Node
 var _enemy_hp_before := 0
@@ -35,12 +36,15 @@ func _ready() -> void:
 	_entities = _main.get_node("Viewport/Entities")
 
 
-func _process(_delta: float) -> void:
+# 调度挂在物理帧而非渲染帧：headless 下渲染不受垂直同步约束，
+# 渲染帧可能领先物理步，曾导致"子弹命中敌人"在弹丸飞到前被提前校验
+func _physics_process(_delta: float) -> void:
 	_frame += 1
 	match _frame:
 		2: _main.dismiss_briefing()
 		5: _check_world_built()
 		7: _check_weapons_cfg()
+		9: _test_p2a_terrain()
 		8: _test_initial_noop()
 		12: _setup_weapon_pickup()
 		25: _check_weapon_grant()
@@ -164,6 +168,54 @@ func _check_weapons_cfg() -> void:
 		and not _player.weapon_owned[1] and not _player.weapon_owned[2],
 		"初始持有模型: 仅手枪")
 	_report(_player.health_max == 100, "玩家血量上限: %d (期望 100)" % _player.health_max)
+
+
+## P2a 夜空室外区端到端（纯查询，无传送，不干扰后续串行传送测试）:
+## 夜空环境生效 → 庭院外扩（围墙环四角+门洞开通+露天格计数）→
+## 室内天花板保留 + 露天地面覆层 → 小地图跟随模式激活
+func _test_p2a_terrain() -> void:
+	var world_env: WorldEnvironment = _main.get_node("Viewport/WorldEnvironment")
+	var env := world_env.environment
+	_report(env.background_mode == Environment.BG_SKY and env.sky != null,
+		"P2a 夜空环境已启用 (background_mode=%d)" % env.background_mode)
+
+	var cy: Dictionary = GameData.level_ext_cfg.get("courtyard", {})
+	var rect: Dictionary = cy.get("rect", {})
+	if rect.is_empty():
+		_report(false, "level_ext.courtyard.rect 配置缺失")
+		return
+	var x0 := int(rect.get("x", 0))
+	var y0 := int(rect.get("y", 0))
+	var w := int(rect.get("w", 0))
+	var h := int(rect.get("h", 0))
+	_report(_level.has_courtyard(), "庭院外扩已生成")
+	var expected_open: int = maxi(w - 2, 0) * maxi(h - 2, 0)
+	_report(_level.get_courtyard_cells().size() == expected_open,
+		"庭院露天格: %d (期望 %d，围墙环完整)" % [_level.get_courtyard_cells().size(), expected_open])
+	# 围墙环四角必须实体化（渲染 MultiMesh + 碰撞同源）
+	_report(_level.is_wall(x0, y0) and _level.is_wall(x0 + w - 1, y0)
+		and _level.is_wall(x0, y0 + h - 1) and _level.is_wall(x0 + w - 1, y0 + h - 1),
+		"庭院围墙环四角实体化 @(%d,%d)-(%d,%d)" % [x0, y0, x0 + w - 1, y0 + h - 1])
+	# 门洞开通: 门洞格非墙，且门内一格连通庭院开阔区
+	var door: Dictionary = cy.get("doorway", {})
+	var dx := int(door.get("x", x0))
+	var dy := int(door.get("y", y0 + h / 2))
+	_report(not _level.is_wall(dx, dy) and not _level.is_wall(dx + 1, dy),
+		"庭院门洞已开并连通室内 (%d,%d)" % [dx, dy])
+	# 门洞物理通行: 横穿门洞格的射线应无碰撞（原边界墙碰撞体随之移除）
+	var space: PhysicsDirectSpaceState3D = _level.get_world_3d().direct_space_state
+	var ray := PhysicsRayQueryParameters3D.create(
+		Vector3((dx - 0.5) * WorldConst.CELL, 0.65, (dy + 0.5) * WorldConst.CELL),
+		Vector3((dx + 2.5) * WorldConst.CELL, 0.65, (dy + 0.5) * WorldConst.CELL))
+	ray.exclude = [_player.get_rid()]
+	_report(space.intersect_ray(ray).is_empty(),
+		"门洞物理通行无阻挡（碰撞已移除）(%d,%d)" % [dx, dy])
+	# 室内天花板保留 + 露天地面覆层
+	_report(_level.get_node_or_null("Ceiling") != null, "室内天花板保留（屋檐结构）")
+	_report(_level.get_node_or_null("CourtyardFloor") != null, "庭院露天地面覆层已生成")
+	# P1.5 小地图跟随模式
+	var mm: Node = _main.get_node("HUD").get_node_or_null("MiniMap")
+	_report(mm != null and bool(mm.get("_follow")), "小地图跟随模式已激活")
 
 
 func _setup_weapon_pickup() -> void:

@@ -15,6 +15,7 @@ var enemies_cfg := {}
 var pickups_cfg := {}
 var game_cfg := {}
 var narrative_cfg := {}
+var level_ext_cfg := {}  # P2 地形扩展层（Godot 侧专属配置，不进入 C++ 同源地图）
 
 var pickup_sounds := {}
 var sfx := {}
@@ -46,6 +47,7 @@ func _ready() -> void:
 	pickups_cfg = _load_json(CFG_DIR + "pickups.json")
 	game_cfg = _load_json(CFG_DIR + "game.json")
 	narrative_cfg = _load_json(CFG_DIR + "narrative.json")
+	level_ext_cfg = _load_json(CFG_DIR + "level_ext.json")
 	_setup_sfx_bus()
 	_load_sounds()
 	_load_sfx()

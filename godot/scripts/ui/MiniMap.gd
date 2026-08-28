@@ -3,6 +3,8 @@ class_name MiniMap
 ## MiniMap — HUD 右上角俯视小地图（数据驱动，零额外渲染开销）
 ## 墙体由 LevelGenerator.wall_cells 一次性预渲染为 ImageTexture；
 ## 每帧仅叠加玩家箭头 / 敌人红点 / 信标绿点。1 地图格 = 1 纹理像素。
+## P1.5 跟随模式（level_ext.json: miniMapFollow）: 地图任一维超过跟随视窗时
+## 启用窗口裁剪绘制，玩家居中、贴边钳制；实体点按视窗偏移换算，越界不绘制。
 
 const SCALE := 1.25  # 纹理像素 → 屏幕像素
 const MARGIN := 12.0  # 距屏幕右上角间距
@@ -14,7 +16,10 @@ const COLOR_ENEMY := Color(1.0, 0.3, 0.25)
 const COLOR_FLAG := Color(0.35, 1.0, 0.45)
 
 var _wall_tex: ImageTexture
-var _map_size := Vector2.ZERO
+var _map_size := Vector2i.ZERO  # 地图总尺寸（纹理像素 = 格）
+var _follow := false            # P1.5 窗口跟随开关
+var _view := Vector2i.ZERO      # 跟随视窗尺寸（格）
+var _src := Vector2.ZERO        # 视窗左上角在地图上的格坐标
 var _player: Node3D
 var _entities: Node3D
 var _ready_flag := false
@@ -30,14 +35,25 @@ func setup(level: Node, player: Node3D, entities: Node3D) -> void:
 	for cell: Vector2i in level.wall_cells:
 		w = maxi(w, cell.x + 1)
 		h = maxi(h, cell.y + 1)
-	_map_size = Vector2(w, h)
+	_map_size = Vector2i(w, h)
 	var img := Image.create(w, h, false, Image.FORMAT_RGBA8)
 	img.fill(Color(0, 0, 0, 0))
 	for cell: Vector2i in level.wall_cells:
 		img.set_pixelv(cell, COLOR_WALL)
 	_wall_tex = ImageTexture.create_from_image(img)
+
+	# P1.5 跟随模式: 配置开启且地图确实大于视窗时生效，否则回退整图模式
+	_follow = bool(GameData.level_ext_cfg.get("miniMapFollow", false))
+	var fv: Dictionary = GameData.level_ext_cfg.get("followView", {})
+	if _follow and not fv.is_empty():
+		_view = Vector2i(int(fv.get("w", w)), int(fv.get("h", h)))
+	_follow = _follow and _view.x > 0 and _view.y > 0 \
+		and (_map_size.x > _view.x or _map_size.y > _view.y)
+	if not _follow:
+		_view = _map_size
+
 	# CanvasLayer 直接子节点的锚点不会相对视口解析，显式按视口尺寸定位
-	size = _map_size * SCALE
+	size = Vector2(_view) * SCALE
 	texture_filter = CanvasItem.TEXTURE_FILTER_NEAREST
 	_reposition()
 	get_tree().root.size_changed.connect(_reposition)
@@ -46,16 +62,36 @@ func setup(level: Node, player: Node3D, entities: Node3D) -> void:
 
 func _reposition() -> void:
 	var vp := get_viewport().get_visible_rect().size
-	position = Vector2(vp.x - _map_size.x * SCALE - MARGIN, MARGIN)
+	position = Vector2(vp.x - size.x - MARGIN, MARGIN)
 
 
 func _process(_delta: float) -> void:
-	if _ready_flag:
-		queue_redraw()
+	if not _ready_flag:
+		return
+	if _follow and is_instance_valid(_player):
+		# 玩家居中，贴边钳制；取整对齐纹理像素避免采样半像素发糊
+		var center := Vector2(
+			_player.global_position.x / WorldConst.CELL,
+			_player.global_position.z / WorldConst.CELL)
+		var target := center - Vector2(_view) * 0.5
+		target.x = clampf(target.x, 0.0, float(maxi(_map_size.x - _view.x, 0)))
+		target.y = clampf(target.y, 0.0, float(maxi(_map_size.y - _view.y, 0)))
+		_src = target.floor()
+	queue_redraw()
 
 
 func _map_px(world_pos: Vector3) -> Vector2:
 	return Vector2(world_pos.x / WorldConst.CELL, world_pos.z / WorldConst.CELL) * SCALE
+
+
+## 世界坐标 → 当前小地图控件上的屏幕坐标（跟随模式下叠加视窗偏移）
+func _onscreen(world_pos: Vector3) -> Vector2:
+	return _map_px(world_pos) - _src * SCALE
+
+
+func _in_view(p: Vector2) -> bool:
+	return p.x >= -4.0 and p.y >= -4.0 \
+		and p.x <= size.x + 4.0 and p.y <= size.y + 4.0
 
 
 func _draw() -> void:
@@ -64,21 +100,30 @@ func _draw() -> void:
 	# 底板与边框
 	draw_rect(Rect2(Vector2.ZERO, size), COLOR_BG)
 	draw_rect(Rect2(Vector2.ZERO, size), COLOR_BORDER, false, 1.0)
-	draw_texture_rect(_wall_tex, Rect2(Vector2.ZERO, size), false)
+	if _follow:
+		# 区域裁剪绘制：源矩形为当前跟随视窗
+		draw_texture_rect_region(_wall_tex, Rect2(Vector2.ZERO, size),
+			Rect2(_src, Vector2(_view)))
+	else:
+		draw_texture_rect(_wall_tex, Rect2(Vector2.ZERO, size), false)
 
-	# 敌人红点（跳过已释放/濒死无效节点）
+	# 敌人红点（跳过已释放/濒死无效节点与视窗外）
 	for e in get_tree().get_nodes_in_group("enemies"):
 		if is_instance_valid(e):
-			draw_circle(_map_px(e.global_position), 1.6, COLOR_ENEMY)
+			var ep := _onscreen(e.global_position)
+			if _in_view(ep):
+				draw_circle(ep, 1.6, COLOR_ENEMY)
 
 	# 撤离信标绿点
 	for c in _entities.get_children():
 		if is_instance_valid(c) and c.has_signal("reached"):
-			draw_circle(_map_px(c.global_position), 2.2, COLOR_FLAG)
+			var cp := _onscreen(c.global_position)
+			if _in_view(cp):
+				draw_circle(cp, 2.2, COLOR_FLAG)
 
 	# 玩家箭头（朝向 = 相机前方 -Z 投影到地图平面）
 	if is_instance_valid(_player):
-		var p := _map_px(_player.global_position)
+		var p := _onscreen(_player.global_position)
 		var rot: float = _player.rotation.y
 		var fwd := Vector2(-sin(rot), -cos(rot))
 		var side := Vector2(-fwd.y, fwd.x)
