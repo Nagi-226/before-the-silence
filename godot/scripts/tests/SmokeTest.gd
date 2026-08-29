@@ -179,6 +179,10 @@ func _check_weapons_cfg() -> void:
 	var hud_ammo: Label = _main.get_node("HUD").ammo_label
 	_report(hud_ammo.text.contains("9×19mm"),
 		"HUD 弹药口径显示(手枪): %s" % hud_ammo.text)
+	var hud_health: Label = _main.get_node("HUD").health_label
+	_report(hud_ammo.offset_right <= hud_health.offset_left,
+		"HUD 底部标签无重叠: 弹药行右缘 %.0f <= 生命行左缘 %.0f"
+		% [hud_ammo.offset_right, hud_health.offset_left])
 
 
 ## P2a 夜空室外区端到端（纯查询，无传送，不干扰后续串行传送测试）:
