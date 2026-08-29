@@ -19,12 +19,43 @@
     "offset": 0.05,
     "uvScaleX": 3.8
   },
+  "wallDecals": [
+    {
+      "_comment": "出生点背后的货运大门(卷帘门, 底缝未关严): 提灯潜入仓库的入口, 叙事合理化布景。纯贴花, 不进 wall_cells/碰撞/AI/小地图。face=贴花法线朝向。",
+      "map": 0,
+      "texture": "res://assets/images/Gate Cargo.bmp",
+      "x": 4, "y": 37, "w": 2,
+      "face": "N",
+      "offset": 0.05
+    }
+  ],
   "props": [
     { "map": 0, "sprite": "res://assets/sprites/Prop Rubble.png",     "x": 172, "y": 29, "scale": 0.5 },
     { "map": 0, "sprite": "res://assets/sprites/Prop Crate.png",      "x": 176, "y": 35, "scale": 0.55 },
     { "map": 0, "sprite": "res://assets/sprites/Prop Streetlamp.png", "x": 183, "y": 31, "scale": 0.95 },
     { "map": 0, "sprite": "res://assets/sprites/Prop Deadtree.png",   "x": 188, "y": 28, "scale": 1.05 },
-    { "map": 0, "sprite": "res://assets/sprites/Prop Crate.png",      "x": 187, "y": 34, "scale": 0.45 }
+    { "map": 0, "sprite": "res://assets/sprites/Prop Crate.png",      "x": 187, "y": 34, "scale": 0.45 },
+    { "_comment": "室内布景道具: 箱子/碎石点缀仓库内部, 缓解空旷。均为已验证的室内地面格, 不进碰撞/逻辑。" },
+    { "map": 0, "sprite": "res://assets/sprites/Prop Crate.png",  "x": 25,  "y": 11, "scale": 0.55 },
+    { "map": 0, "sprite": "res://assets/sprites/Prop Crate.png",  "x": 60,  "y": 6,  "scale": 0.6 },
+    { "map": 0, "sprite": "res://assets/sprites/Prop Crate.png",  "x": 61,  "y": 6,  "scale": 0.45 },
+    { "map": 0, "sprite": "res://assets/sprites/Prop Crate.png",  "x": 82,  "y": 13, "scale": 0.5 },
+    { "map": 0, "sprite": "res://assets/sprites/Prop Crate.png",  "x": 141, "y": 11, "scale": 0.6 },
+    { "map": 0, "sprite": "res://assets/sprites/Prop Crate.png",  "x": 100, "y": 15, "scale": 0.5 },
+    { "map": 0, "sprite": "res://assets/sprites/Prop Crate.png",  "x": 120, "y": 19, "scale": 0.55 },
+    { "map": 0, "sprite": "res://assets/sprites/Prop Crate.png",  "x": 59,  "y": 32, "scale": 0.45 },
+    { "map": 0, "sprite": "res://assets/sprites/Prop Crate.png",  "x": 60,  "y": 32, "scale": 0.6 },
+    { "map": 0, "sprite": "res://assets/sprites/Prop Crate.png",  "x": 80,  "y": 1,  "scale": 0.5 },
+    { "map": 0, "sprite": "res://assets/sprites/Prop Crate.png",  "x": 20,  "y": 49, "scale": 0.55 },
+    { "map": 0, "sprite": "res://assets/sprites/Prop Crate.png",  "x": 40,  "y": 49, "scale": 0.5 },
+    { "map": 0, "sprite": "res://assets/sprites/Prop Crate.png",  "x": 62,  "y": 45, "scale": 0.6 },
+    { "map": 0, "sprite": "res://assets/sprites/Prop Crate.png",  "x": 122, "y": 54, "scale": 0.55 },
+    { "map": 0, "sprite": "res://assets/sprites/Prop Crate.png",  "x": 143, "y": 48, "scale": 0.5 },
+    { "map": 0, "sprite": "res://assets/sprites/Prop Crate.png",  "x": 160, "y": 54, "scale": 0.6 },
+    { "map": 0, "sprite": "res://assets/sprites/Prop Crate.png",  "x": 120, "y": 61, "scale": 0.55 },
+    { "map": 0, "sprite": "res://assets/sprites/Prop Crate.png",  "x": 121, "y": 61, "scale": 0.4 },
+    { "map": 0, "sprite": "res://assets/sprites/Prop Rubble.png", "x": 80,  "y": 28, "scale": 0.6 },
+    { "map": 0, "sprite": "res://assets/sprites/Prop Rubble.png", "x": 100, "y": 38, "scale": 0.55 }
   ],
   "miniMapFollow": true,
   "followView": { "w": 96, "h": 54 }

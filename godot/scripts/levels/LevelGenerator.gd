@@ -92,6 +92,7 @@ func build(map_index: int, entity_root: Node3D) -> Vector3:
 	_build_floor_ceiling()
 	_build_collision(buckets)
 	_build_facade(map_index)
+	_build_wall_decals(map_index)
 	_spawn_props(map_index)
 	_spawn_weapon_pickups(map_index, entity_root)
 	_spawn_shell_pickups(map_index, entity_root)
@@ -230,6 +231,65 @@ func _build_facade(map_index: int) -> void:
 			p_mi.position = Vector3(
 				face_x - 0.2, base_y + height + 0.25, z_center)
 			root.add_child(p_mi)
+
+
+## 墙面贴花(布景): 把整面墙替换成专属贴图(如出生点货运大门)。与外立面同约定:
+## 不登记 wall_cells、不进 buckets、不建碰撞 → 逻辑零侵入; 贴花面沿法线外推
+## offset 防与原墙面共面闪烁。face 为法线朝向("N"=-Z "S"=+Z "E"=+X "W"=-X)。
+func _build_wall_decals(map_index: int) -> void:
+	var decals: Array = GameData.level_ext_cfg.get("wallDecals", [])
+	var idx := 0
+	for entry in decals:
+		var ed: Dictionary = entry
+		if int(ed.get("map", -1)) != map_index:
+			continue
+		var tex_path := str(ed.get("texture", ""))
+		if not ResourceLoader.exists(tex_path):
+			push_warning("墙面贴花贴图缺失: " + tex_path)
+			continue
+		var tex: Variant = load(tex_path)
+		var x0 := int(ed.get("x", 0))
+		var y0 := int(ed.get("y", 0))
+		var w := maxi(1, int(ed.get("w", 1)))
+		var width := float(w) * WorldConst.CELL
+		var height := WorldConst.WALL_HEIGHT
+		var offset := float(ed.get("offset", 0.05))
+		var cx := (float(x0) + float(w) * 0.5) * WorldConst.CELL
+		var cz := (float(y0) + 0.5) * WorldConst.CELL
+		var face := str(ed.get("face", "N"))
+		var pos := Vector3.ZERO
+		var rot_y := 0.0
+		match face:
+			"N":
+				pos = Vector3(cx, height * 0.5, cz - WorldConst.CELL * 0.5 - offset)
+				rot_y = PI
+			"S":
+				pos = Vector3(cx, height * 0.5, cz + WorldConst.CELL * 0.5 + offset)
+				rot_y = 0.0
+			"E":
+				pos = Vector3(cx + WorldConst.CELL * 0.5 + offset, height * 0.5, cz)
+				rot_y = PI / 2
+			"W":
+				pos = Vector3(cx - WorldConst.CELL * 0.5 - offset, height * 0.5, cz)
+				rot_y = -PI / 2
+			_:
+				push_warning("墙面贴花未知 face: " + face)
+				continue
+		var mat := StandardMaterial3D.new()
+		mat.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
+		mat.albedo_texture = tex
+		mat.texture_filter = BaseMaterial3D.TEXTURE_FILTER_NEAREST
+		var quad := QuadMesh.new()
+		quad.size = Vector2(width, height)
+		quad.material = mat
+		var mi := MeshInstance3D.new()
+		mi.name = "WallDecal_%d" % idx
+		mi.mesh = quad
+		mi.rotation.y = rot_y
+		mi.position = pos
+		mi.add_to_group("wall_decals")
+		add_child(mi)
+		idx += 1
 
 
 const PROP_PIXEL_SIZE := 0.02  # 道具 Sprite3D 基准米/像素(128px 精灵≈2.56m), 配置 scale 乘数微调
