@@ -37,6 +37,9 @@ var armor_cur := 0  # 防护服能量：按 armorAbsorbRate 比例吸收伤害
 var armor_absorb_rate := 0.5  # 减伤比例：能量按 1:1 抵消该比例的伤害
 var coins := 0
 var ammo_reserve := 90
+# B线·结算战绩口径: 击发次数(霰弹一发=一次)与命中敌人次数(命中率=hits/shots)
+var shots_fired := 0
+var hits_landed := 0
 
 ## 每武器运行时状态: id/displayName/auto/ammoClip/clipSize/fireInterval/damage/
 ## bulletSpeed/bulletRange/reloadTime/spawnOffset/viewmodel
@@ -263,9 +266,11 @@ func _shoot() -> void:
 	var pellets: int = int(w.get("pellets", 1))
 	var spread := deg_to_rad(float(w.get("spreadDeg", 0.0)))
 	var cam_basis := camera.global_transform.basis
+	shots_fired += 1  # 击发即计数(多弹丸算一次, 结算命中率口径)
 	for p in pellets:
 		var proj: Node3D = ProjectileScene.instantiate()
 		proj.from_player = true
+		proj.shooter = self  # B线: 命中敌人时回报玩家计数(命中率结算)
 		proj.damage = int(w["damage"])
 		proj.speed = float(w["bulletSpeed"])
 		proj.max_range = float(w["bulletRange"])

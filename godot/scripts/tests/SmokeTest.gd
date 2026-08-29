@@ -31,6 +31,76 @@ var _health_test_done := false
 var _death_test_done := false
 var _flag_test_done := false
 var _p2b_climb_base_y := 0.0
+var _campaign_test_done := false
+
+
+## B线批1 · 转关流程静态配置断言: campaign 序列 / goals 旗配置与在场 /
+## map2 外部地图配置 / 室内 F 旗抑制(仅庭院旗)
+func _test_campaign_config() -> void:
+	var seq: Array = (GameData.level_ext_cfg.get("campaign", {}) as Dictionary).get("sequence", [])
+	_report(seq.size() == 3 and int(seq[0]) == 0 and int(seq[1]) == 2 and int(seq[2]) == 1,
+		"关卡序列 campaign: 仓库区→街道→地下设施 [%s]" % str(seq))
+
+	var has_map0_goal := false
+	for g in GameData.level_ext_cfg.get("goals", []):
+		if int((g as Dictionary).get("map", -1)) == 0:
+			has_map0_goal = true
+	_report(has_map0_goal, "goals 配置: 第一关庭院旗已配置")
+
+	var m2: Dictionary = {}
+	for m in GameData.level_ext_cfg.get("maps", []):
+		if int((m as Dictionary).get("map", -1)) == 2:
+			m2 = m
+	_report(not m2.is_empty() and int(m2.get("width", 0)) == 140 and int(m2.get("height", 0)) == 84,
+		"map2 外部地图配置就绪 (140×84 室外, level_ext.maps 管线)")
+
+	var flags := []
+	for c in _entities.get_children():
+		if c.has_signal("reached"):
+			flags.append(c)
+	_report(flags.size() == 1,
+		"第一关终点旗: 室内F旗已抑制, 仅庭院配置旗 (数量=%d)" % flags.size())
+	if flags.size() == 1:
+		_report(float(flags[0].global_position.x) > 167.0 * WorldConst.CELL,
+			"终点旗位于庭院内 (%.0f, %.0f)"
+			% [flags[0].global_position.x, flags[0].global_position.z])
+
+
+## B线批1 · 转关流程端到端(协程): 等待 flag 测试触发第一关通关 →
+## level_end 结算态(下一关入口) → 击发计数口径 → 转关 → map2 灰盒生成 →
+## 跨关保留(武器/升级/弹匣补满)。帧位 310, flag 测试 timer 链约 300+ 帧触发
+func _test_campaign_flow() -> void:
+	var waited := 0
+	while not _main.game_over and waited < 600:
+		await get_tree().physics_frame
+		waited += 1
+	_report(_main.game_over and _main.state == "level_end",
+		"第一关通关进入关卡间结算态 level_end (state=%s)" % _main.state)
+	var end_hint: Label = _main.get_node("HUD").get("end_hint")
+	_report(end_hint != null and end_hint.text.contains("下一关"),
+		"结算面板提供「进入下一关」入口")
+	# 命中率口径: 击发即计数(多弹丸算一次)
+	var shots_before: int = _player.shots_fired
+	_player._shoot()
+	_report(_player.shots_fired == shots_before + 1,
+		"命中率口径: 击发即计数 (霰弹一发=一次)")
+	# 跨关保留基准记录后触发转关(等价结算面板 Enter)
+	var tier_before: int = _player.weapon_tier
+	var smg_owned: bool = bool(_player.weapon_owned[1])
+	_main._advance_level()
+	await get_tree().physics_frame
+	await get_tree().physics_frame
+	_report(_main.map_index == 2, "转关后进入第二关 map2 (index=%d)" % _main.map_index)
+	_report(_main.state == "briefing", "转关后进入第二关简报态")
+	_report(_level.wall_cells.size() == 444,
+		"map2 灰盒围墙环: %d 格 (期望 444, 140×84 周界)" % _level.wall_cells.size())
+	_report(_level.get_node_or_null("Ceiling") == null, "map2 室外无天花板 (outdoor)")
+	_report(_player.weapon_tier == tier_before and bool(_player.weapon_owned[1]) == smg_owned,
+		"跨关保留: 武器持有与升级组件等级原样保留 (tier=%d)" % _player.weapon_tier)
+	_report(_player.ammo_clip == int(_player.weapons[_player.weapon_index]["clipSize"]),
+		"跨关保留: 弹匣自动补满 (%d/%d)"
+		% [_player.ammo_clip, int(_player.weapons[_player.weapon_index]["clipSize"])])
+	_campaign_test_done = true
 
 
 func _ready() -> void:
@@ -55,6 +125,7 @@ func _physics_process(_delta: float) -> void:
 		13: _test_edaa_narrative()
 		14: _test_menu_identity()
 		15: _test_p2b_terrain()
+		16: _test_campaign_config()
 		8: _test_initial_noop()
 		12: _setup_weapon_pickup()
 		25: _check_weapon_grant()
@@ -69,6 +140,7 @@ func _physics_process(_delta: float) -> void:
 		135: _check_death_collision()
 		140: _p2b_climb_setup()
 		185: _p2b_climb_check()
+		310: _test_campaign_flow()
 		346: _finish()
 
 
@@ -837,7 +909,9 @@ func _check_flag() -> void:
 
 
 func _finish() -> void:
-	while not _noop_test_done or not _cycle_test_done or not _components_test_done or not _shotgun_test_done or not _health_test_done or not _death_test_done or not _flag_test_done:
+	while not _noop_test_done or not _cycle_test_done or not _components_test_done \
+			or not _shotgun_test_done or not _health_test_done or not _death_test_done \
+			or not _flag_test_done or not _campaign_test_done:
 		await get_tree().physics_frame
 	print("[SMOKE] 结果: %s" % ("全部通过" if not _fail else "存在失败项"))
 	get_tree().quit(1 if _fail else 0)

@@ -27,15 +27,31 @@ var _health_seen := 0  # H 符号序号（道具平衡换算用，build 时归�
 var _courtyard_cells: Array[Vector2i] = []  # 本图庭院地板格（露天区，含门洞通道）
 var _courtyard_rect := Rect2i()  # 庭院外扩矩形（格坐标），size==Vector2i.ZERO 表示无庭院
 var _courtyard_tint := Color(1.0, 1.0, 1.0)
+# 当前地图尺寸元数据(格): 符号图取 LevelData 常量, 外部地图(level_ext.maps)取配置
+var _map_w := LevelData.WIDTH
+var _map_h := LevelData.HEIGHT
+var _outdoor := false  # 外部地图 outdoor=true: 无天花板(露天关卡)
 
 
 func build(map_index: int, entity_root: Node3D) -> Vector3:
-	var rows := (LevelData.MAPS[map_index] as String).split("\n")
+	# B线: 外部地图(level_ext.maps)优先——命中则符号图与实体全走配置,
+	# 不触碰与 C++ 归档版同源的 LevelData(红线); 未命中回退符号图(现状行为)
+	var ext_map := _ext_map_cfg(map_index)
+	var rows: Variant = []
+	if ext_map.is_empty():
+		rows = (LevelData.MAPS[map_index] as String).split("\n")
 	var buckets := {"X": [], "M": [], "S": [], "G": []}
 	var spawn := Vector3.ZERO
 	_health_seen = 0
+	# B线转关复用本实例多次 build: 运行时状态必须整体重置
+	wall_cells.clear()
 	_courtyard_cells.clear()
 	_courtyard_rect = Rect2i()
+	_map_w = LevelData.WIDTH
+	_map_h = LevelData.HEIGHT
+	_outdoor = false
+	# B线: goals 命中且 suppressDataFlag → 抑制符号图 F 旗(改由配置旗接管)
+	var suppress_flag := _goal_suppress_data_flag(map_index)
 
 	for y in rows.size():
 		var row: String = rows[y]
@@ -49,6 +65,8 @@ func build(map_index: int, entity_root: Node3D) -> Vector3:
 				"P":
 					spawn = ground
 				"F":
+					if suppress_flag:
+						continue
 					var flag: Node3D = FlagScene.instantiate()
 					flag.position = ground
 					flag.reached.connect(func(): goal_reached.emit())
@@ -87,7 +105,10 @@ func build(map_index: int, entity_root: Node3D) -> Vector3:
 					speed_pickup.symbol = "e"
 					entity_root.add_child(speed_pickup)
 
-	_apply_courtyard(map_index, buckets)
+	if ext_map.is_empty():
+		_apply_courtyard(map_index, buckets)
+	else:
+		spawn = _apply_ext_map(ext_map, entity_root, buckets)
 	_build_walls(buckets)
 	_build_floor_ceiling()
 	_build_collision(buckets)
@@ -98,7 +119,83 @@ func build(map_index: int, entity_root: Node3D) -> Vector3:
 	_spawn_weapon_pickups(map_index, entity_root)
 	_spawn_shell_pickups(map_index, entity_root)
 	_spawn_upgrade_components(map_index, entity_root)
+	_spawn_goal_flags(map_index, entity_root)
 	return Vector3(spawn.x, 0.65, spawn.z)
+
+
+## B线: 取 level_ext.maps 中匹配 map_index 的外部地图配置(未命中返回空字典)
+func _ext_map_cfg(map_index: int) -> Dictionary:
+	for entry in GameData.level_ext_cfg.get("maps", []):
+		var ed: Dictionary = entry
+		if int(ed.get("map", -1)) == map_index:
+			return ed
+	return {}
+
+
+## B线: goals 段命中且 suppressDataFlag=true → 抑制符号图 F 旗(改由配置旗接管)
+func _goal_suppress_data_flag(map_index: int) -> bool:
+	for entry in GameData.level_ext_cfg.get("goals", []):
+		var ed: Dictionary = entry
+		if int(ed.get("map", -1)) != map_index:
+			continue
+		return bool(ed.get("suppressDataFlag", false))
+	return false
+
+
+## B线: 按 goals.flags 配置生成终点旗(如第一关旗挪庭院)
+func _spawn_goal_flags(map_index: int, entity_root: Node3D) -> void:
+	for entry in GameData.level_ext_cfg.get("goals", []):
+		var ed: Dictionary = entry
+		if int(ed.get("map", -1)) != map_index:
+			continue
+		for f in ed.get("flags", []):
+			var fd: Dictionary = f
+			var flag: Node3D = FlagScene.instantiate()
+			flag.position = _cell_center(int(fd.get("x", 0)), int(fd.get("y", 0)))
+			flag.reached.connect(func(): goal_reached.emit())
+			entity_root.add_child(flag)
+
+
+## B线: 外部地图应用——灰盒围墙环(真几何, 进 buckets/wall_cells, AI/小地图/碰撞可用)
+## + 配置实体(spawn/flag/enemies/pickups)。返回出生点(格中心)。
+func _apply_ext_map(cfg: Dictionary, entity_root: Node3D, buckets: Dictionary) -> Vector3:
+	_map_w = maxi(int(cfg.get("width", 0)), 4)
+	_map_h = maxi(int(cfg.get("height", 0)), 4)
+	_outdoor = bool(cfg.get("outdoor", false))
+	var symbol := str((cfg.get("borderWall", {}) as Dictionary).get("symbol", "S"))
+	if not WALL_TEXTURES.has(symbol):
+		symbol = "S"
+	for y in range(_map_h):
+		for x in range(_map_w):
+			if x == 0 or y == 0 or x == _map_w - 1 or y == _map_h - 1:
+				buckets[symbol].append(_cell_center(x, y))
+				wall_cells[Vector2i(x, y)] = symbol
+
+	var sp: Dictionary = cfg.get("spawn", {})
+	var spawn := _cell_center(int(sp.get("x", 1)), int(sp.get("y", 1)))
+
+	var fl: Dictionary = cfg.get("flag", {})
+	var flag: Node3D = FlagScene.instantiate()
+	flag.position = _cell_center(int(fl.get("x", _map_w - 3)), int(fl.get("y", 2)))
+	flag.reached.connect(func(): goal_reached.emit())
+	entity_root.add_child(flag)
+
+	for e in cfg.get("enemies", []):
+		var ed: Dictionary = e
+		var enemy: Node3D = EnemyScene.instantiate()
+		enemy.position = _cell_center(int(ed.get("x", 0)), int(ed.get("y", 0)))
+		enemy.template_id = int(ed.get("id", 0))
+		enemy.projectile_root = get_parent()
+		entity_root.add_child(enemy)
+
+	for p in cfg.get("pickups", []):
+		var pd: Dictionary = p
+		var pickup: Node3D = PickupScene.instantiate()
+		pickup.position = _cell_center(int(pd.get("x", 0)), int(pd.get("y", 0)))
+		pickup.symbol = str(pd.get("symbol", "A"))
+		entity_root.add_child(pickup)
+
+	return spawn
 
 
 func is_wall(x: int, y: int) -> bool:
@@ -459,8 +556,9 @@ func _build_walls(buckets: Dictionary) -> void:
 
 
 func _build_floor_ceiling() -> void:
+	# 地图尺寸取当前图元数据(符号图=LevelData 常量, 外部地图=level_ext.maps 配置)
 	var plane_size := Vector2(
-		LevelData.WIDTH * WorldConst.CELL, LevelData.HEIGHT * WorldConst.CELL)
+		_map_w * WorldConst.CELL, _map_h * WorldConst.CELL)
 
 	var floor_mat := StandardMaterial3D.new()
 	floor_mat.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
@@ -475,6 +573,9 @@ func _build_floor_ceiling() -> void:
 	floor_mi.position = Vector3(plane_size.x * 0.5, 0.0, plane_size.y * 0.5)
 	add_child(floor_mi)
 
+	# outdoor 地图(如 map2 室外街道)无天花板, 露天由 Main 场景环境提供
+	if _outdoor:
+		return
 	var ceil_mat := StandardMaterial3D.new()
 	ceil_mat.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
 	ceil_mat.albedo_texture = load("res://assets/images/Ceiling.bmp")

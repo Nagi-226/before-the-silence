@@ -65,6 +65,41 @@
       "ramp": { "x": 177, "y": 28, "w": 3, "h": 2, "dir": "E", "height": 1.3, "tint": [0.62, 0.55, 0.46] }
     }
   ],
+  "campaign": {
+    "_comment": "B线·关卡流程序列(map_index数据索引): 0=城区仓库区(第一关) → 2=城区街道(第二关,室外) → 1=地下隐匿设施(第三关)。转关=场景内重建保留Player实例(跨关数据免序列化)。",
+    "sequence": [0, 2, 1]
+  },
+  "goals": [
+    {
+      "_comment": "B线·第一关终点旗挪庭院(走到庭院即第一关结束, 弹结算转关)。suppressDataFlag=抑制LevelData F符号旗, 改由本配置旗接管。坐标为符号row(非源码行号), 落位已对照庭院露天格核验。",
+      "map": 0,
+      "suppressDataFlag": true,
+      "flags": [ { "x": 179, "y": 32 } ]
+    }
+  ],
+  "maps": [
+    {
+      "_comment": "B线·map2灰盒占位(批1): 140x84室外平地+石墙围界+西端出生+东北信标旗。批2起实装街道/建筑布局, 批3加T2阶梯地形, 批4做环境差异化。outdoor=true无天花板。",
+      "map": 2,
+      "name": "城区街道",
+      "width": 140,
+      "height": 84,
+      "outdoor": true,
+      "borderWall": { "symbol": "S" },
+      "spawn": { "x": 3, "y": 42 },
+      "flag": { "x": 134, "y": 6 },
+      "enemies": [
+        { "x": 70, "y": 42, "id": 1 },
+        { "x": 100, "y": 30, "id": 0 },
+        { "x": 110, "y": 60, "id": 2 }
+      ],
+      "pickups": [
+        { "x": 20, "y": 40, "symbol": "H" },
+        { "x": 30, "y": 50, "symbol": "A" },
+        { "x": 25, "y": 35, "symbol": "C" }
+      ]
+    }
+  ],
   "miniMapFollow": true,
   "followView": { "w": 96, "h": 54 }
 }
