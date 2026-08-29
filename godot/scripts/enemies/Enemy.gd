@@ -8,7 +8,7 @@ signal fired
 
 const ProjectileScene := preload("res://scenes/weapons/Projectile.tscn")
 
-const PIXEL_SIZES := [0.045, 0.0575, 0.075]  # 小/中/大 体型 (32px 精灵, 值=米/像素)
+const PIXEL_SIZES := [0.0225, 0.02875, 0.0375]  # 小/中/大 体型 (64px AE-219 精灵, 值=米/像素, 世界高度与旧32px版一致)
 
 @onready var sprite: Sprite3D = $Sprite3D
 @onready var collision_shape: CollisionShape3D = $CollisionShape3D
@@ -27,11 +27,22 @@ var fire_interval := 0.5
 var bullet_speed := 16.0
 var is_dying := false
 
+# AE-219 双攻击模式: "spore"=仅远程喷孢子, "melee_spore"=近战+远程双模式
+var attack_mode := "spore"
+var melee_range := 0.0        # <=0 表示无近战（米）
+var melee_damage := 0
+var melee_interval := 1.0
+
 var _fire_cooldown := 0.0
+var _melee_cooldown := 0.0
 var _gravity: float = ProjectSettings.get_setting("physics/3d/default_gravity", 9.8)
 var _base_modulate := Color.WHITE
 var _idle_texture: Texture2D
-var _attack_texture: Texture2D  # 持武器开火帧，缺失时保持常态贴图（优雅降级）
+var _attack_texture: Texture2D       # 旧式单攻击帧（缺失双帧时的优雅降级）
+var _attack_melee_texture: Texture2D # " Attack Melee.png" 近战帧
+var _attack_spore_texture: Texture2D # " Attack Spore.png" 喷/掷孢子帧
+var _projectile_texture: Texture2D   # 孢子投射物贴图（缺失则沿用球形弹）
+var _projectile_pixel_size := 0.0
 var _sprite_base_pos := Vector3(0, 0.9, 0)
 var _sprite_base_scale := Vector3.ONE
 var _hurt_tween: Tween
@@ -50,15 +61,32 @@ func _ready() -> void:
 	detection_range = float(t.get("detectionRange", 8.0)) * WorldConst.CELL
 	attack_range = float(t.get("attackRange", 2.0)) * WorldConst.CELL
 	move_speed = float(t.get("moveSpeed", 2.5)) * WorldConst.CELL
+	attack_mode = str(t.get("attackMode", "spore"))
+	melee_range = float(t.get("meleeRange", 0.0)) * WorldConst.CELL
+	melee_damage = int(t.get("meleeDamage", 0))
+	melee_interval = float(t.get("meleeInterval", 1.0))
 
 	var tex_file: String = t.get("textureFile", "")
 	var tex_path := "res://assets/sprites/" + tex_file.get_basename() + ".png"
 	if ResourceLoader.exists(tex_path):
 		sprite.texture = load(tex_path)
 	_idle_texture = sprite.texture
-	var attack_path := "res://assets/sprites/" + tex_file.get_basename() + " Attack.png"
+	var base := tex_file.get_basename()
+	var attack_path := "res://assets/sprites/" + base + " Attack.png"
 	if ResourceLoader.exists(attack_path):
 		_attack_texture = load(attack_path)
+	var melee_path := "res://assets/sprites/" + base + " Attack Melee.png"
+	if ResourceLoader.exists(melee_path):
+		_attack_melee_texture = load(melee_path)
+	var spore_path := "res://assets/sprites/" + base + " Attack Spore.png"
+	if ResourceLoader.exists(spore_path):
+		_attack_spore_texture = load(spore_path)
+	var proj_file: String = t.get("projectileSprite", "")
+	if proj_file != "":
+		var proj_path := "res://assets/sprites/" + proj_file.get_basename() + ".png"
+		if ResourceLoader.exists(proj_path):
+			_projectile_texture = load(proj_path)
+			_projectile_pixel_size = float(t.get("projectilePixelSize", 0.015))
 	sprite.pixel_size = PIXEL_SIZES[clampi(template_id, 0, 2)]
 	_base_modulate = sprite.modulate
 	_sprite_base_pos = sprite.position
@@ -91,24 +119,42 @@ func _physics_process(delta: float) -> void:
 	elif dist <= attack_range:
 		velocity.x = 0.0
 		velocity.z = 0.0
-		_fire_cooldown -= delta
-		if _fire_cooldown <= 0.0:
-			_shoot_at(player)
-			_fire_cooldown = fire_interval
+		if melee_range > 0.0 and dist <= melee_range:
+			# 贴身时改爪击（双模式敌人）
+			_melee_cooldown -= delta
+			if _melee_cooldown <= 0.0:
+				_melee_at(player)
+				_melee_cooldown = melee_interval
+		else:
+			_fire_cooldown -= delta
+			if _fire_cooldown <= 0.0:
+				_shoot_at(player)
+				_fire_cooldown = fire_interval
 	else:
 		velocity.x = 0.0
 		velocity.z = 0.0
 	move_and_slide()
 
 
+## 近战爪击: 换近战帧 + 直接对玩家结算伤害（无弹道，贴脸判定）
+func _melee_at(player: Node3D) -> void:
+	fired.emit()
+	_enter_attack_pose("melee")
+	if player.has_method("take_damage"):
+		player.take_damage(melee_damage)
+
+
 func _shoot_at(player: Node3D) -> void:
 	fired.emit()
-	_enter_attack_pose()
+	_enter_attack_pose("spore")
 	var proj: Node3D = ProjectileScene.instantiate()
 	proj.from_player = false
 	proj.damage = fire_damage
 	proj.speed = bullet_speed
 	proj.max_range = detection_range + WorldConst.CELL * 2
+	if _projectile_texture:
+		proj.spore_texture = _projectile_texture
+		proj.spore_pixel_size = _projectile_pixel_size
 	var root := projectile_root if projectile_root else get_tree().root
 	root.add_child(proj)
 	var muzzle := global_position + Vector3(0, WorldConst.EYE_HEIGHT * 0.8, 0)
@@ -117,10 +163,16 @@ func _shoot_at(player: Node3D) -> void:
 	proj.direction = (target - muzzle).normalized()
 
 
-## DOOM 式攻击帧: 开火瞬间换持武器贴图并后座，短暂停顿后还原
-func _enter_attack_pose() -> void:
-	if _attack_texture:
-		sprite.texture = _attack_texture
+## DOOM 式攻击帧: 攻击瞬间换对应贴图并后座，短暂停顿后还原。
+## kind: "spore"=喷/掷孢子帧, "melee"=近战爪击帧; 双帧缺失时回退旧式单攻击帧
+func _enter_attack_pose(kind: String = "spore") -> void:
+	var tex: Texture2D
+	if kind == "melee":
+		tex = _attack_melee_texture if _attack_melee_texture else _attack_texture
+	else:
+		tex = _attack_spore_texture if _attack_spore_texture else _attack_texture
+	if tex:
+		sprite.texture = tex
 	sprite.position = _sprite_base_pos + Vector3(0.0, -0.04, 0.0)
 	var pose_time := float(GameData.enemies_cfg.get("feedback", {}).get("attackPoseTime", 0.18))
 	attack_timer.start(pose_time)

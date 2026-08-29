@@ -1,27 +1,42 @@
 {
   "templates": [
     {
-      "textureFile": "Alien Small.bmp",
+      "textureFile": "AE219 Spore Husk.png",
       "health": 80,
       "detectionRange": 8.0,
       "attackRange": 2.0,
       "moveSpeed": 2.5,
+      "attackMode": "spore",
+      "projectileSprite": "AE219 Spore Small.png",
+      "projectilePixelSize": 0.015,
       "canDropPickup": false
     },
     {
-      "textureFile": "Alien Medium.bmp",
+      "textureFile": "AE219 Host.png",
       "health": 100,
       "detectionRange": 8.0,
       "attackRange": 2.0,
+      "meleeRange": 0.75,
+      "meleeDamage": 12,
+      "meleeInterval": 1.0,
       "moveSpeed": 2.5,
+      "attackMode": "melee_spore",
+      "projectileSprite": "AE219 Spore Small.png",
+      "projectilePixelSize": 0.015,
       "canDropPickup": true
     },
     {
-      "textureFile": "Alien Large.bmp",
+      "textureFile": "AE219 Hulking Host.png",
       "health": 300,
       "detectionRange": 8.0,
       "attackRange": 2.0,
-      "moveSpeed": 2.5,
+      "meleeRange": 0.9,
+      "meleeDamage": 20,
+      "meleeInterval": 0.8,
+      "moveSpeed": 3.5,
+      "attackMode": "melee_spore",
+      "projectileSprite": "AE219 Spore Large.png",
+      "projectilePixelSize": 0.022,
       "canDropPickup": true
     }
   ],

@@ -6,7 +6,8 @@ extends Node
 ##       霰弹枪(泵动配置/拾取/单发弹丸数/12号霰弹补给) /
 ##       子弹命中敌人 / 弹药消耗 / 武器动画 / 敌人死亡流程 / 终点旗通关判定 /
 ##       P2a 夜空室外区(夜空环境/庭院外扩围墙环+门洞/露天格/天花板保留/小地图跟随) /
-##       阶段一布景(装饰外立面高度/庭院道具数量/布景零逻辑侵入不变式)
+##       阶段一布景(装饰外立面高度/庭院道具数量/布景零逻辑侵入不变式) /
+##       AE-219敌人(三模板贴图切换/双攻击帧加载/巨型移速/孢子弹道精灵化)
 ## 运行: godot --path godot --headless res://scenes/tests/SmokeTest.tscn
 
 var _frame := 0
@@ -47,6 +48,7 @@ func _physics_process(_delta: float) -> void:
 		7: _check_weapons_cfg()
 		9: _test_p2a_terrain()
 		10: _test_facade_props()
+		11: _test_ae219_enemies()
 		8: _test_initial_noop()
 		12: _setup_weapon_pickup()
 		25: _check_weapon_grant()
@@ -250,6 +252,59 @@ func _test_facade_props() -> void:
 		_report(col_body.get_child_count() == _level.wall_cells.size(),
 			"墙碰撞体数 == 墙格数(布景零逻辑侵入): %d == %d" \
 			% [col_body.get_child_count(), _level.wall_cells.size()])
+
+
+## AE-219 敌人素材与双模式接线: 三模板在场 → 贴图已切换 →
+## 双攻击帧(近战/孢子)加载 → 巨型宿主移速最快 → 敌人弹道可孢子精灵化
+func _test_ae219_enemies() -> void:
+	var seen := {}
+	for e in get_tree().get_nodes_in_group("enemies"):
+		if is_instance_valid(e):
+			seen[int(e.template_id)] = e
+	_report(seen.size() == 3, "三型敌人模板均在场: %d 种" % seen.size())
+
+	var names := {0: "孢子囊", 1: "人类宿主", 2: "巨型宿主"}
+	for tid in [0, 1, 2]:
+		if not seen.has(tid):
+			_report(false, "%s 模板实体缺失" % names[tid])
+			continue
+		var e: Node = seen[tid]
+		var tex: Texture2D = e.get("_idle_texture")
+		_report(tex != null and tex.resource_path.contains("AE219"),
+			"%s 已切换 AE-219 贴图: %s" % [names[tid], tex.resource_path.get_file() if tex else "null"])
+
+	if seen.has(0):
+		var husk: Node = seen[0]
+		_report(husk.get("_attack_spore_texture") != null,
+			"孢子囊发射孢子攻击帧已加载")
+	if seen.has(1):
+		var host: Node = seen[1]
+		_report(host.get("_attack_melee_texture") != null
+			and host.get("_attack_spore_texture") != null,
+			"人类宿主双攻击帧(近战+孢子)已加载")
+	if seen.has(2):
+		var hulking: Node = seen[2]
+		_report(hulking.get("_attack_melee_texture") != null
+			and hulking.get("_attack_spore_texture") != null,
+			"巨型宿主双攻击帧(近战+掷孢子)已加载")
+
+	if seen.size() == 3:
+		_report(float(seen[2].move_speed) > float(seen[0].move_speed)
+			and float(seen[2].move_speed) > float(seen[1].move_speed),
+			"巨型宿主移速最快: %.1f > %.1f/%.1f" \
+			% [seen[2].move_speed, seen[0].move_speed, seen[1].move_speed])
+
+	# 孢子弹道精灵化: 设置贴图后 SporeSprite 可见、球形 Mesh 隐藏
+	var proj: Node3D = preload("res://scenes/weapons/Projectile.tscn").instantiate()
+	proj.spore_texture = load("res://assets/sprites/AE219 Spore Small.png")
+	_main.get_node("Viewport").add_child(proj)
+	proj.global_position = Vector3(0, 200, 0)  # 高空隔离, 避免误伤测试流
+	await get_tree().physics_frame
+	var spore_sprite: Sprite3D = proj.get_node("SporeSprite")
+	var mesh: MeshInstance3D = proj.get_node("Mesh")
+	_report(spore_sprite.visible and spore_sprite.texture != null and not mesh.visible,
+		"敌人弹道可孢子精灵化（贴图广告牌替代球形弹）")
+	proj.queue_free()
 
 
 func _setup_weapon_pickup() -> void:

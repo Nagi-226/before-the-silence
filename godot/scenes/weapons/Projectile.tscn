@@ -24,3 +24,8 @@ shape = SubResource("SphereShape3D_proj")
 [node name="Mesh" type="MeshInstance3D" parent="."]
 mesh = SubResource("SphereMesh_proj")
 surface_material_override/0 = SubResource("StandardMaterial3D_proj")
+
+[node name="SporeSprite" type="Sprite3D" parent="."]
+visible = false
+billboard = 1
+texture_filter = 0
