@@ -21,10 +21,10 @@
   },
   "wallDecals": [
     {
-      "_comment": "出生点背后的货运大门(卷帘门, 底缝未关严): 提灯潜入仓库的入口, 叙事合理化布景。纯贴花, 不进 wall_cells/碰撞/AI/小地图。face=贴花法线朝向。",
+      "_comment": "出生点背后的货运大门(卷帘门, 底缝未关严): 提灯潜入仓库的入口, 叙事合理化布景。纯贴花, 不进 wall_cells/碰撞/AI/小地图。face=贴花法线朝向。注意: MAPS split 后 rows[0] 为空行, 出生点背后墙实际在 row 38(非 37)。",
       "map": 0,
       "texture": "res://assets/images/Gate Cargo.bmp",
-      "x": 4, "y": 37, "w": 2,
+      "x": 4, "y": 38, "w": 2,
       "face": "N",
       "offset": 0.05
     }

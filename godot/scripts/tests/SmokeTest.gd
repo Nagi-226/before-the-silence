@@ -277,6 +277,23 @@ func _test_facade_props() -> void:
 	_report(decals.size() == expect_decals,
 		"墙面贴花(大门): %d 个 (期望 %d, 与配置一致)" % [decals.size(), expect_decals])
 
+	# 贴花必须挂在真实墙格上(防配置行号偏移导致悬浮):
+	# 覆盖的每个格都须在 wall_cells 中。历史坑: 大门曾误配 y=37(空地),
+	# 真墙在 row 38 → 贴花悬浮空中 2 米, 仅查数量的断言漏检
+	for d in dcfg:
+		var dd: Dictionary = d
+		if int(dd.get("map", -1)) != 0:
+			continue
+		var x0 := int(dd.get("x", 0))
+		var y0 := int(dd.get("y", 0))
+		var dw := maxi(1, int(dd.get("w", 1)))
+		var on_wall := true
+		for i in dw:
+			if not _level.wall_cells.has(Vector2i(x0 + i, y0)):
+				on_wall = false
+		_report(on_wall,
+			"墙面贴花挂在真实墙格上: (%d,%d) 起 %d 格" % [x0, y0, dw])
+
 	# 逻辑零侵入不变式: 布景(立面/道具)不进碰撞层 → 碰撞体数恒等于墙格数
 	var col_body := _level.get_node_or_null("WallCollision")
 	if col_body != null:
