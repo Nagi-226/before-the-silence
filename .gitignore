@@ -41,5 +41,3 @@ export/
 # Python cache
 __pycache__/
 
-# AI 生成迭代原稿（中间产物，不入库）
-assets-src/**/*_raw.png
