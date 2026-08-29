@@ -91,6 +91,7 @@ func build(map_index: int, entity_root: Node3D) -> Vector3:
 	_build_walls(buckets)
 	_build_floor_ceiling()
 	_build_collision(buckets)
+	_build_terrain(map_index)
 	_build_facade(map_index)
 	_build_wall_decals(map_index)
 	_spawn_props(map_index)
@@ -534,3 +535,136 @@ func _build_collision(buckets: Dictionary) -> void:
 	ground_col.shape = WorldBoundaryShape3D.new()
 	ground_body.add_child(ground_col)
 	add_child(ground_body)
+
+
+## P2b 高度地形: 平台(实心台体) + 斜坡(旋转坡板), 配置于 level_ext.json terrain 段。
+## 玩法元素——进碰撞(CharacterBody3D 天然可行走/贴地), 但不登记 wall_cells/buckets
+## → 敌人 AI/小地图/墙碰撞计数零改动(隔层侦测留待敌人地面吸附批次处理)。
+## 每个地形体为独立 StaticBody3D(Terrain_Platform_i / Terrain_Ramp_i), 挂 "terrain" 组。
+const TERRAIN_RAMP_THICK := 0.3  # 坡板厚度(米)
+
+
+func _build_terrain(map_index: int) -> void:
+	var terrain: Array = GameData.level_ext_cfg.get("terrain", [])
+	var idx := 0
+	for entry in terrain:
+		var ed: Dictionary = entry
+		if int(ed.get("map", -1)) != map_index:
+			continue
+		var plat: Dictionary = ed.get("platform", {})
+		if not plat.is_empty():
+			if _build_terrain_platform(idx, plat):
+				idx += 1
+		var ramp: Dictionary = ed.get("ramp", {})
+		if not ramp.is_empty():
+			if _build_terrain_ramp(idx, ramp):
+				idx += 1
+
+
+## 实心平台: 矩形格区自地面抬升至 height, 顶面可行走/承碰撞
+func _build_terrain_platform(idx: int, cfg: Dictionary) -> bool:
+	var x := int(cfg.get("x", 0))
+	var y := int(cfg.get("y", 0))
+	var w := maxi(1, int(cfg.get("w", 1)))
+	var h := maxi(1, int(cfg.get("h", 1)))
+	var height := float(cfg.get("height", 0.0))
+	if height <= 0.0 or height >= WorldConst.WALL_HEIGHT:
+		push_warning("terrain.platform 高度无效 (%.2fm), 跳过" % height)
+		return false
+	var center := Vector3(
+		(float(x) + float(w) * 0.5) * WorldConst.CELL,
+		height * 0.5,
+		(float(y) + float(h) * 0.5) * WorldConst.CELL)
+	_make_terrain_body("Terrain_Platform_%d" % idx, Basis.IDENTITY, center,
+		Vector3(float(w) * WorldConst.CELL, height, float(h) * WorldConst.CELL),
+		_terrain_material(cfg))
+	return true
+
+
+## 斜坡: 沿 dir(N/S/E/W, 坡顶朝向)自地面抬升至 height 的坡板。
+## 水平跨距 = dir 轴向格数×CELL, 坡度须 <45°(CharacterBody3D 可行走上限);
+## 两端各延 5cm 咬合地面与平台消缝。
+func _build_terrain_ramp(idx: int, cfg: Dictionary) -> bool:
+	var x := int(cfg.get("x", 0))
+	var y := int(cfg.get("y", 0))
+	var w := maxi(1, int(cfg.get("w", 1)))
+	var h := maxi(1, int(cfg.get("h", 1)))
+	var height := float(cfg.get("height", 0.0))
+	var dir := str(cfg.get("dir", "E"))
+	if height <= 0.0 or height >= WorldConst.WALL_HEIGHT:
+		push_warning("terrain.ramp 高度无效 (%.2fm), 跳过" % height)
+		return false
+	var along_x := dir == "E" or dir == "W"
+	var span := float(w if along_x else h) * WorldConst.CELL
+	var width := float(h if along_x else w) * WorldConst.CELL
+	var slope_deg := rad_to_deg(atan2(height, span))
+	if slope_deg >= 45.0:
+		push_warning("terrain.ramp 坡度 %.1f° 超 45° 不可行走, 跳过" % slope_deg)
+		return false
+	var x0 := float(x) * WorldConst.CELL
+	var z0 := float(y) * WorldConst.CELL
+	var cx := x0 + float(w) * WorldConst.CELL * 0.5
+	var cz := z0 + float(h) * WorldConst.CELL * 0.5
+	var overlap := 0.05
+	var low := Vector3.ZERO
+	var high := Vector3.ZERO
+	match dir:
+		"E":
+			low = Vector3(x0 - overlap, 0.0, cz)
+			high = Vector3(x0 + span + overlap, height, cz)
+		"W":
+			low = Vector3(x0 + span + overlap, 0.0, cz)
+			high = Vector3(x0 - overlap, height, cz)
+		"S":
+			low = Vector3(cx, 0.0, z0 - overlap)
+			high = Vector3(cx, height, z0 + span + overlap)
+		"N":
+			low = Vector3(cx, 0.0, z0 + span + overlap)
+			high = Vector3(cx, height, z0 - overlap)
+		_:
+			push_warning("terrain.ramp 未知 dir: " + dir)
+			return false
+	var fwd := (high - low).normalized()
+	var fwd_flat := Vector3(fwd.x, 0.0, fwd.z).normalized()
+	var side_w := fwd_flat.cross(Vector3.UP)  # 宽向(水平, 垂直坡向)
+	var up := side_w.cross(fwd)               # 坡面法线(朝上)
+	var slope_len := (high - low).length()
+	var center := (low + high) * 0.5 - up * (TERRAIN_RAMP_THICK * 0.5)
+	_make_terrain_body("Terrain_Ramp_%d" % idx, Basis(fwd, up, side_w), center,
+		Vector3(slope_len, TERRAIN_RAMP_THICK, width),
+		_terrain_material(cfg))
+	return true
+
+
+func _make_terrain_body(body_name: String, basis: Basis, center: Vector3,
+		size: Vector3, mat: Material) -> StaticBody3D:
+	var body := StaticBody3D.new()
+	body.name = body_name
+	body.transform = Transform3D(basis, center)
+	var col := CollisionShape3D.new()
+	var shape := BoxShape3D.new()
+	shape.size = size
+	col.shape = shape
+	body.add_child(col)
+	var mi := MeshInstance3D.new()
+	var box := BoxMesh.new()
+	box.size = size
+	box.material = mat
+	mi.mesh = box
+	body.add_child(mi)
+	body.add_to_group("terrain")
+	add_child(body)
+	return body
+
+
+func _terrain_material(cfg: Dictionary) -> StandardMaterial3D:
+	var mat := StandardMaterial3D.new()
+	mat.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
+	mat.texture_filter = BaseMaterial3D.TEXTURE_FILTER_NEAREST
+	var tex_path := str(cfg.get("texture", "res://assets/images/Floor Tile.bmp"))
+	if ResourceLoader.exists(tex_path):
+		mat.albedo_texture = load(tex_path)
+	var tint: Array = cfg.get("tint", [])
+	if tint.size() >= 3:
+		mat.albedo_color = Color(float(tint[0]), float(tint[1]), float(tint[2]))
+	return mat

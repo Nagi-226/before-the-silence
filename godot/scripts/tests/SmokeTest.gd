@@ -30,6 +30,7 @@ var _shotgun_test_done := false
 var _health_test_done := false
 var _death_test_done := false
 var _flag_test_done := false
+var _p2b_climb_base_y := 0.0
 
 
 func _ready() -> void:
@@ -53,6 +54,7 @@ func _physics_process(_delta: float) -> void:
 		11: _test_ae219_enemies()
 		13: _test_edaa_narrative()
 		14: _test_menu_identity()
+		15: _test_p2b_terrain()
 		8: _test_initial_noop()
 		12: _setup_weapon_pickup()
 		25: _check_weapon_grant()
@@ -65,6 +67,8 @@ func _physics_process(_delta: float) -> void:
 		85: _setup_shoot()
 		130: _check_shoot()
 		135: _check_death_collision()
+		140: _p2b_climb_setup()
+		185: _p2b_climb_check()
 		346: _finish()
 
 
@@ -392,6 +396,119 @@ func _test_menu_identity() -> void:
 			stack.append(ch)
 	_report(found_title, "主菜单标题已改「静默之前」(《Snuffers》前传定位)")
 	menu.queue_free()
+
+
+## P2b 高度地形(第一批): 平台+斜坡按配置生成(terrain 组) → 坡度 <45° 可行走 →
+## 平台顶面碰撞高度精确。地形碰撞为独立 StaticBody(不进 WallCollision)，
+## 墙碰撞不变式(墙碰撞体数==墙格数)由 _test_facade_props 断言保持。
+func _test_p2b_terrain() -> void:
+	var tcfg: Array = GameData.level_ext_cfg.get("terrain", [])
+	var expect := 0
+	var plat: Dictionary = {}
+	var ramp: Dictionary = {}
+	for t in tcfg:
+		var td: Dictionary = t
+		if int(td.get("map", -1)) != 0:
+			continue
+		var p: Dictionary = td.get("platform", {})
+		var r: Dictionary = td.get("ramp", {})
+		if not p.is_empty():
+			expect += 1
+			if plat.is_empty():
+				plat = p
+		if not r.is_empty():
+			expect += 1
+			if ramp.is_empty():
+				ramp = r
+	var terrain_nodes := get_tree().get_nodes_in_group("terrain")
+	_report(terrain_nodes.size() == expect,
+		"P2b 高度地形体: %d 个 (期望 %d, 平台+斜坡与配置一致)" % [terrain_nodes.size(), expect])
+	if plat.is_empty() or ramp.is_empty():
+		_report(false, "terrain 配置缺 platform/ramp")
+		return
+
+	# 坡度可行走(≤45°): CharacterBody3D 默认可行走上限
+	var dir := str(ramp.get("dir", "E"))
+	var along_x := dir == "E" or dir == "W"
+	var span := float(int(ramp.get("w", 1)) if along_x else int(ramp.get("h", 1))) * WorldConst.CELL
+	var slope_deg := rad_to_deg(atan2(float(ramp.get("height", 0.0)), span))
+	_report(slope_deg > 0.0 and slope_deg < 45.0,
+		"斜坡坡度可行走: %.1f° (0°<坡度<45°)" % slope_deg)
+
+	# 平台顶面碰撞高度: 垂直射线自上方命中平台顶(排除玩家自身)
+	var px := (float(int(plat.get("x", 0))) + float(int(plat.get("w", 1))) * 0.5) * WorldConst.CELL
+	var pz := (float(int(plat.get("y", 0))) + float(int(plat.get("h", 1))) * 0.5) * WorldConst.CELL
+	var space: PhysicsDirectSpaceState3D = _level.get_world_3d().direct_space_state
+	var ray := PhysicsRayQueryParameters3D.create(Vector3(px, 4.0, pz), Vector3(px, -1.0, pz))
+	ray.exclude = [_player.get_rid()]
+	var hit := space.intersect_ray(ray)
+	var top_y := -99.0
+	if not hit.is_empty():
+		top_y = float(hit["position"].y)
+	var expect_top := float(plat.get("height", 0.0))
+	_report(absf(top_y - expect_top) < 0.05,
+		"平台顶面碰撞高度: %.2fm (期望 %.2fm)" % [top_y, expect_top])
+
+
+## 取本图(map0) terrain 段首个指定键的配置
+func _p2b_first_cfg(key: String) -> Dictionary:
+	for t in GameData.level_ext_cfg.get("terrain", []):
+		var td: Dictionary = t
+		if int(td.get("map", -1)) != 0:
+			continue
+		var c: Dictionary = td.get(key, {})
+		if not c.is_empty():
+			return c
+	return {}
+
+
+## 爬坡实测(第一批核心): 传送至斜坡底助跑位, 面向坡顶按住前进——
+## 45 物理帧(0.75s)后应立于平台顶。帧位选在死亡/旗标测试之前的大空档
+## (135→346), 避免与串行传送测试抢占玩家位置
+func _p2b_climb_setup() -> void:
+	var ramp: Dictionary = _p2b_first_cfg("ramp")
+	if ramp.is_empty():
+		_report(false, "爬坡测试: 无斜坡配置")
+		return
+	var dir := str(ramp.get("dir", "E"))
+	var rx := float(int(ramp.get("x", 0))) * WorldConst.CELL
+	var rz := float(int(ramp.get("y", 0))) * WorldConst.CELL
+	var rw := float(int(ramp.get("w", 1))) * WorldConst.CELL
+	var rh := float(int(ramp.get("h", 1))) * WorldConst.CELL
+	_p2b_climb_base_y = _player.global_position.y
+	_player.velocity = Vector3.ZERO
+	match dir:
+		"E":
+			_player.global_position = Vector3(rx - 1.0, 0.65, rz + rh * 0.5)
+			_player.rotation.y = -PI / 2
+		"W":
+			_player.global_position = Vector3(rx + rw + 1.0, 0.65, rz + rh * 0.5)
+			_player.rotation.y = PI / 2
+		"S":
+			_player.global_position = Vector3(rx + rw * 0.5, 0.65, rz - 1.0)
+			_player.rotation.y = PI
+		"N":
+			_player.global_position = Vector3(rx + rw * 0.5, 0.65, rz + rh + 1.0)
+			_player.rotation.y = 0.0
+	_key_down(KEY_W)
+
+
+func _p2b_climb_check() -> void:
+	_key_up(KEY_W)
+	var rise := float(_player.global_position.y) - _p2b_climb_base_y
+	_report(rise > 1.0,
+		"玩家经斜坡登顶平台: 高差 %.2fm (>1.0m, 坡度可行走实证)" % rise)
+	var plat: Dictionary = _p2b_first_cfg("platform")
+	if plat.is_empty():
+		return
+	# 仍在平台矩形范围内(未冲出边缘跌落)
+	var x0 := float(int(plat.get("x", 0))) * WorldConst.CELL
+	var z0 := float(int(plat.get("y", 0))) * WorldConst.CELL
+	var x1 := x0 + float(int(plat.get("w", 1))) * WorldConst.CELL
+	var z1 := z0 + float(int(plat.get("h", 1))) * WorldConst.CELL
+	_report(_player.global_position.x >= x0 and _player.global_position.x <= x1
+		and _player.global_position.z >= z0 and _player.global_position.z <= z1,
+		"玩家立于平台范围内: (%.1f, %.1f)" % [_player.global_position.x, _player.global_position.z])
 
 
 func _setup_weapon_pickup() -> void:
