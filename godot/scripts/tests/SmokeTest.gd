@@ -8,7 +8,8 @@ extends Node
 ##       P2a 夜空室外区(夜空环境/庭院外扩围墙环+门洞/露天格/天花板保留/小地图跟随) /
 ##       阶段一布景(装饰外立面高度/庭院道具数量/布景零逻辑侵入不变式) /
 ##       AE-219敌人(三模板贴图切换/双攻击帧加载/巨型移速/孢子弹道精灵化) /
-##       EDAA世界观化(简报提灯/2026当代/敌名三型/混凝土仓库墙/徽记菜单背景)
+##       EDAA世界观化(简报提灯/2026当代/敌名三型/混凝土仓库墙/徽记菜单背景) /
+##       菜单身份(徽记完整容下不出界/标题静默之前) / HUD弹药口径显示(9×19mm/12号霰弹)
 ## 运行: godot --path godot --headless res://scenes/tests/SmokeTest.tscn
 
 var _frame := 0
@@ -51,6 +52,7 @@ func _physics_process(_delta: float) -> void:
 		10: _test_facade_props()
 		11: _test_ae219_enemies()
 		13: _test_edaa_narrative()
+		14: _test_menu_identity()
 		8: _test_initial_noop()
 		12: _setup_weapon_pickup()
 		25: _check_weapon_grant()
@@ -174,6 +176,9 @@ func _check_weapons_cfg() -> void:
 		and not _player.weapon_owned[1] and not _player.weapon_owned[2],
 		"初始持有模型: 仅手枪")
 	_report(_player.health_max == 100, "玩家血量上限: %d (期望 100)" % _player.health_max)
+	var hud_ammo: Label = _main.get_node("HUD").ammo_label
+	_report(hud_ammo.text.contains("9×19mm"),
+		"HUD 弹药口径显示(手枪): %s" % hud_ammo.text)
 
 
 ## P2a 夜空室外区端到端（纯查询，无传送，不干扰后续串行传送测试）:
@@ -341,6 +346,32 @@ func _test_edaa_narrative() -> void:
 
 	var menu_bg: Texture2D = load("res://assets/images/MenuBG_EDAA.png")
 	_report(menu_bg != null, "EDAA 徽记菜单背景可加载")
+
+
+## 主菜单身份: 徽记背景完整容下（居中自适应不出界）+ 标题改「静默之前」
+## （实例化真实场景验证 _ready 构建结果，验后即弃）
+func _test_menu_identity() -> void:
+	var menu: Control = preload("res://scenes/ui/MainMenu.tscn").instantiate()
+	add_child(menu)
+	var emblem: TextureRect = null
+	for c in menu.get_children():
+		var tr := c as TextureRect
+		if tr != null and tr.texture != null \
+				and tr.texture.resource_path.contains("MenuBG_EDAA"):
+			emblem = tr
+	_report(emblem != null and emblem.stretch_mode == TextureRect.STRETCH_KEEP_ASPECT_CENTERED,
+		"菜单徽记背景完整容下(居中自适应, 不再出界裁切)")
+	var found_title := false
+	var stack: Array[Node] = [menu]
+	while not stack.is_empty():
+		var n: Node = stack.pop_back()
+		var l := n as Label
+		if l != null and "静 默 之 前" in l.text:
+			found_title = true
+		for ch in n.get_children():
+			stack.append(ch)
+	_report(found_title, "主菜单标题已改「静默之前」(《Snuffers》前传定位)")
+	menu.queue_free()
 
 
 func _setup_weapon_pickup() -> void:
@@ -525,6 +556,8 @@ func _test_shotgun() -> void:
 		await get_tree().physics_frame
 	_report(_player.weapon_owned[2], "拾取后持有霰弹枪")
 	_report(_player.weapon_index == 2, "拾取后自动切换到霰弹枪 (index=%d)" % _player.weapon_index)
+	_report(_main.get_node("HUD").ammo_label.text.contains("12号霰弹"),
+		"HUD 弹药口径显示(霰弹枪): %s" % _main.get_node("HUD").ammo_label.text)
 	_report(_player.ammo_clip == int(sg["clipSize"]),
 		"霰弹枪弹匣补满: %d (期望 %d，三阶 24)" % [_player.ammo_clip, int(sg["clipSize"])])
 

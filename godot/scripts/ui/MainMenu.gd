@@ -19,7 +19,7 @@ func _ready() -> void:
 	bg.texture = load("res://assets/images/MenuBG_EDAA.png")
 	bg.set_anchors_preset(Control.PRESET_FULL_RECT)
 	bg.expand_mode = TextureRect.EXPAND_IGNORE_SIZE
-	bg.stretch_mode = TextureRect.STRETCH_KEEP_ASPECT_COVERED
+	bg.stretch_mode = TextureRect.STRETCH_KEEP_ASPECT_CENTERED
 	bg.texture_filter = CanvasItem.TEXTURE_FILTER_NEAREST
 	bg.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	add_child(bg)
@@ -33,10 +33,10 @@ func _ready() -> void:
 	var box := UIStyle.make_center_vbox(10)
 	add_child(box)
 
-	var title := UIStyle.make_label("废 墟 侦 察", 46, UIStyle.ACCENT)
+	var title := UIStyle.make_label("静 默 之 前", 46, UIStyle.ACCENT)
 	title.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	box.add_child(title)
-	var subtitle := UIStyle.make_label("RETRO FPS · Godot 重制版", 16, UIStyle.DIM)
+	var subtitle := UIStyle.make_label("《Snuffers》前传 · RETRO FPS", 16, UIStyle.DIM)
 	subtitle.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	box.add_child(subtitle)
 	box.add_child(UIStyle.make_label(" ", 24))

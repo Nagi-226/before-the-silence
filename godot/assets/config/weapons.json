@@ -3,6 +3,7 @@
     {
       "id": "pistol",
       "displayName": "手枪",
+      "ammoType": "9×19mm",
       "auto": false,
       "owned": true,
       "ammoClip": 20,
@@ -18,6 +19,7 @@
     {
       "id": "smg",
       "displayName": "冲锋枪",
+      "ammoType": "9×19mm",
       "auto": true,
       "owned": false,
       "ammoClip": 30,
@@ -33,6 +35,7 @@
     {
       "id": "shotgun",
       "displayName": "霰弹枪",
+      "ammoType": "12号霰弹",
       "auto": false,
       "owned": false,
       "ammoClip": 8,

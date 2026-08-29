@@ -8,7 +8,7 @@ signal ammo_changed(clip: int, reserve: int)
 signal health_changed(current: int, max_hp: int)
 signal armor_changed(current: int, max_armor: int)
 signal coins_changed(amount: int)
-signal weapon_changed(weapon_name: String, viewmodel: String)
+signal weapon_changed(weapon_name: String, viewmodel: String, ammo_type: String)
 signal component_rejected(needed_tier: int)
 signal pickup_hint(text: String)
 signal hurt
@@ -78,7 +78,7 @@ func _ready() -> void:
 	health_changed.emit(health_cur, health_max)
 	armor_changed.emit(armor_cur, armor_max)
 	coins_changed.emit(coins)
-	weapon_changed.emit(weapon_display_name(), weapon_viewmodel())
+	weapon_changed.emit(weapon_display_name(), weapon_viewmodel(), weapon_ammo_type())
 
 
 func _build_weapons() -> void:
@@ -88,6 +88,7 @@ func _build_weapons() -> void:
 		weapons.append({
 			"id": str(cd.get("id", "")),
 			"displayName": str(cd.get("displayName", "武器")),
+			"ammoType": str(cd.get("ammoType", "")),
 			"auto": bool(cd.get("auto", false)),
 			"ammoClip": int(cd.get("ammoClip", 20)),
 			"clipSize": int(cd.get("clipSize", 20)),
@@ -162,7 +163,7 @@ func _switch_to(idx: int) -> void:
 	weapon_index = idx
 	_reloading = 0.0  # 切枪打断换弹（备弹尚未转移，无副作用）
 	_fire_cooldown = maxf(_fire_cooldown, WEAPON_SWITCH_DELAY)
-	weapon_changed.emit(weapon_display_name(), weapon_viewmodel())
+	weapon_changed.emit(weapon_display_name(), weapon_viewmodel(), weapon_ammo_type())
 	ammo_changed.emit(ammo_clip, ammo_reserve)
 
 
@@ -328,6 +329,10 @@ func add_reserve(amount: int) -> void:
 
 func weapon_display_name() -> String:
 	return str(weapons[weapon_index]["displayName"])
+
+
+func weapon_ammo_type() -> String:
+	return str(weapons[weapon_index].get("ammoType", ""))
 
 
 func weapon_viewmodel() -> String:

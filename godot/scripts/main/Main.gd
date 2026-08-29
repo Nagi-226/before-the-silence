@@ -77,7 +77,7 @@ func _connect_player() -> void:
 			hud.show_toast("组件不兼容：需要先获得%s武器升级组件" % TIER_NAMES.get(needed, "上一级")))
 	player.pickup_hint.connect(func(text: String): hud.show_toast(text))
 	# Player._ready 先于本函数执行，初始信号已丢失——主动同步一次 HUD
-	hud.update_weapon(player.weapon_display_name(), player.weapon_viewmodel())
+	hud.update_weapon(player.weapon_display_name(), player.weapon_viewmodel(), player.weapon_ammo_type())
 	hud.update_ammo(player.ammo_clip, player.ammo_reserve)
 	hud.update_health(player.health_cur, player.health_max)
 	hud.update_armor(player.armor_cur, player.armor_max)

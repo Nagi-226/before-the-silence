@@ -21,6 +21,7 @@ const SHOTGUN_VIEWMODEL_SCALE := Vector2(1.20, 1.0)
 @onready var end_vbox: VBoxContainer = $EndPanel/VBox
 
 var _weapon_name := "手枪"
+var _ammo_type := ""
 
 var _briefing_root: Control
 var _briefing_blink: Tween
@@ -102,11 +103,13 @@ func _build_weapon_feedback(font: Font) -> void:
 
 
 func update_ammo(clip: int, reserve: int) -> void:
-	ammo_label.text = "%s  弹药  %d / %d" % [_weapon_name, clip, reserve]
+	var spec := " · " + _ammo_type if _ammo_type != "" else ""
+	ammo_label.text = "%s%s  弹药  %d / %d" % [_weapon_name, spec, clip, reserve]
 
 
-func update_weapon(weapon_name: String, viewmodel: String) -> void:
+func update_weapon(weapon_name: String, viewmodel: String, ammo_type: String = "") -> void:
 	_weapon_name = weapon_name
+	_ammo_type = ammo_type
 	var vm := viewmodel.to_lower()
 	if vm.contains("shotgun"):
 		_weapon_id = "shotgun"

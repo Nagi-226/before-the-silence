@@ -48,11 +48,11 @@ anchor_top = 1.0
 anchor_bottom = 1.0
 offset_left = 16.0
 offset_top = -42.0
-offset_right = 216.0
+offset_right = 320.0
 offset_bottom = -12.0
 grow_vertical = 0
 theme_override_font_sizes/font_size = 20
-text = "手枪  弹药  20 / 90"
+text = "手枪 · 9×19mm  弹药  20 / 90"
 
 [node name="HealthLabel" type="Label" parent="."]
 anchors_preset = 2
