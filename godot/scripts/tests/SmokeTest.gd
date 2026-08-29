@@ -180,9 +180,15 @@ func _check_weapons_cfg() -> void:
 	_report(hud_ammo.text.contains("9×19mm"),
 		"HUD 弹药口径显示(手枪): %s" % hud_ammo.text)
 	var hud_health: Label = _main.get_node("HUD").health_label
-	_report(hud_ammo.offset_right <= hud_health.offset_left,
-		"HUD 底部标签无重叠: 弹药行右缘 %.0f <= 生命行左缘 %.0f"
-		% [hud_ammo.offset_right, hud_health.offset_left])
+	var hud_armor: Label = _main.get_node("HUD").armor_label
+	var hud_coin: Label = _main.get_node("HUD").coin_label
+	var vp_w := float(get_viewport().get_visible_rect().size.x)
+	_report(hud_ammo.offset_right <= vp_w + hud_armor.offset_left,
+		"HUD 底部无重叠: 弹药行右缘 %.0f <= 右侧组左缘 %.0f"
+		% [hud_ammo.offset_right, vp_w + hud_armor.offset_left])
+	_report(hud_armor.offset_right <= hud_health.offset_left
+		and hud_health.offset_right <= hud_coin.offset_left,
+		"HUD 右侧组并排不重叠: 防护→生命→金币 槽位顺序成立")
 
 
 ## P2a 夜空室外区端到端（纯查询，无传送，不干扰后续串行传送测试）:
@@ -255,7 +261,17 @@ func _test_facade_props() -> void:
 			expect += 1
 	var props := get_tree().get_nodes_in_group("props")
 	_report(props.size() == expect,
-		"庭院道具: %d 个 (期望 %d, 与配置一致)" % [props.size(), expect])
+		"布景道具: %d 个 (期望 %d, 与配置一致)" % [props.size(), expect])
+
+	# 墙面贴花(出生点货运大门): 数量与本图配置一致
+	var dcfg: Array = GameData.level_ext_cfg.get("wallDecals", [])
+	var expect_decals := 0
+	for d in dcfg:
+		if int((d as Dictionary).get("map", -1)) == 0:
+			expect_decals += 1
+	var decals := get_tree().get_nodes_in_group("wall_decals")
+	_report(decals.size() == expect_decals,
+		"墙面贴花(大门): %d 个 (期望 %d, 与配置一致)" % [decals.size(), expect_decals])
 
 	# 逻辑零侵入不变式: 布景(立面/道具)不进碰撞层 → 碰撞体数恒等于墙格数
 	var col_body := _level.get_node_or_null("WallCollision")

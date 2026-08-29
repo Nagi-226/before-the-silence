@@ -271,7 +271,17 @@ func show_briefing(data: Dictionary) -> void:
 	_briefing_root.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	add_child(_briefing_root)
 
-	var box := UIStyle.make_center_vbox(14)
+	var box := VBoxContainer.new()
+	box.alignment = BoxContainer.ALIGNMENT_CENTER
+	box.add_theme_constant_override("separation", 14)
+	box.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	# 内容限宽居中(720), 长句自动换行, 避免横向出界
+	box.anchor_left = 0.5
+	box.anchor_right = 0.5
+	box.anchor_top = 0.0
+	box.anchor_bottom = 1.0
+	box.offset_left = -360.0
+	box.offset_right = 360.0
 	_briefing_root.add_child(box)
 
 	var title := UIStyle.make_label(str(data.get("title", "行动简报")), 30, UIStyle.ACCENT)
@@ -281,6 +291,7 @@ func show_briefing(data: Dictionary) -> void:
 	for line in data.get("lines", []):
 		var l := UIStyle.make_label(str(line), 18)
 		l.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+		l.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
 		box.add_child(l)
 	box.add_child(UIStyle.make_label(" ", 14))
 	var hint := UIStyle.make_label("—— 按任意键开始行动 ——", 16, UIStyle.DIM)

@@ -55,29 +55,37 @@ theme_override_font_sizes/font_size = 20
 text = "手枪 · 9×19mm  弹药  20 / 90"
 
 [node name="HealthLabel" type="Label" parent="."]
-anchors_preset = 2
+anchors_preset = 3
+anchor_left = 1.0
 anchor_top = 1.0
+anchor_right = 1.0
 anchor_bottom = 1.0
-offset_left = 360.0
+offset_left = -412.0
 offset_top = -42.0
-offset_right = 560.0
+offset_right = -228.0
 offset_bottom = -12.0
+grow_horizontal = 0
 grow_vertical = 0
 theme_override_font_sizes/font_size = 20
 text = "生命  100 / 100"
+horizontal_alignment = 2
 
 [node name="ArmorLabel" type="Label" parent="."]
-anchors_preset = 2
+anchors_preset = 3
+anchor_left = 1.0
 anchor_top = 1.0
+anchor_right = 1.0
 anchor_bottom = 1.0
-offset_left = 360.0
-offset_top = -72.0
-offset_right = 560.0
-offset_bottom = -42.0
+offset_left = -612.0
+offset_top = -42.0
+offset_right = -428.0
+offset_bottom = -12.0
+grow_horizontal = 0
 grow_vertical = 0
 theme_override_colors/font_color = Color(0.45, 0.95, 0.6, 1)
 theme_override_font_sizes/font_size = 20
 text = "防护  0 / 100"
+horizontal_alignment = 2
 
 [node name="CoinLabel" type="Label" parent="."]
 anchors_preset = 3
