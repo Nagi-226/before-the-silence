@@ -7,7 +7,8 @@ extends Node
 ##       子弹命中敌人 / 弹药消耗 / 武器动画 / 敌人死亡流程 / 终点旗通关判定 /
 ##       P2a 夜空室外区(夜空环境/庭院外扩围墙环+门洞/露天格/天花板保留/小地图跟随) /
 ##       阶段一布景(装饰外立面高度/庭院道具数量/布景零逻辑侵入不变式) /
-##       AE-219敌人(三模板贴图切换/双攻击帧加载/巨型移速/孢子弹道精灵化)
+##       AE-219敌人(三模板贴图切换/双攻击帧加载/巨型移速/孢子弹道精灵化) /
+##       EDAA世界观化(简报提灯/2026当代/敌名三型/混凝土仓库墙/徽记菜单背景)
 ## 运行: godot --path godot --headless res://scenes/tests/SmokeTest.tscn
 
 var _frame := 0
@@ -49,6 +50,7 @@ func _physics_process(_delta: float) -> void:
 		9: _test_p2a_terrain()
 		10: _test_facade_props()
 		11: _test_ae219_enemies()
+		13: _test_edaa_narrative()
 		8: _test_initial_noop()
 		12: _setup_weapon_pickup()
 		25: _check_weapon_grant()
@@ -305,6 +307,40 @@ func _test_ae219_enemies() -> void:
 	_report(spore_sprite.visible and spore_sprite.texture != null and not mesh.visible,
 		"敌人弹道可孢子精灵化（贴图广告牌替代球形弹）")
 	proj.queue_free()
+
+
+## EDAA 世界观化: 文案切换到「提灯」前传叙事(当代 2026, 无 2057/诺亚残留) →
+## 敌名三型对齐 → 仓库主墙(X)已换混凝土贴图 → 菜单徽记背景可加载
+func _test_edaa_narrative() -> void:
+	var cfg: Dictionary = GameData.narrative_cfg
+	var full_text := ""
+	for b in cfg.get("briefings", []):
+		full_text += str((b as Dictionary).get("title", ""))
+		for ln in (b as Dictionary).get("lines", []):
+			full_text += str(ln)
+	for v in cfg.get("victory", []):
+		full_text += str(v)
+	full_text += str((cfg.get("defeat", {}) as Dictionary).get("text", ""))
+	_report(full_text.contains("提灯") and full_text.contains("2026"),
+		"简报已切换提灯前传叙事(含 2026 当代时间线)")
+	_report(not full_text.contains("2057") and not full_text.contains("诺亚"),
+		"旧世界观文案已清除(无 2057/诺亚残留)")
+	_report(full_text.contains("熄烛"),
+		"胜负文案已衔接熄烛者特遣队(前传钩子)")
+
+	var names: Array = cfg.get("enemy_names", [])
+	_report(names.size() == 3 and str(names[0]) == "外星寄生孢子囊"
+		and str(names[1]) == "寄生人类宿主" and str(names[2]) == "巨型突变体宿主",
+		"敌名三型已对齐: %s" % str(names))
+
+	var walls_x: MultiMeshInstance3D = _level.get_node_or_null("Walls_X") as MultiMeshInstance3D
+	var wall_tex: Texture2D = walls_x.material_override.albedo_texture if walls_x else null
+	_report(wall_tex != null and wall_tex.resource_path.contains("Wall Concrete"),
+		"仓库主墙(X)已换混凝土贴图: %s" \
+		% (wall_tex.resource_path.get_file() if wall_tex else "null"))
+
+	var menu_bg: Texture2D = load("res://assets/images/MenuBG_EDAA.png")
+	_report(menu_bg != null, "EDAA 徽记菜单背景可加载")
 
 
 func _setup_weapon_pickup() -> void:

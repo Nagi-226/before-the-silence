@@ -12,7 +12,7 @@ extends Node3D
 signal goal_reached
 
 const WALL_TEXTURES := {
-	"X": "res://assets/images/Wall Brick.bmp",
+	"X": "res://assets/images/Wall Concrete.bmp",
 	"M": "res://assets/images/Wall Metal.bmp",
 	"S": "res://assets/images/Wall Stone.bmp",
 	"G": "res://assets/images/Wall Grate.bmp",
