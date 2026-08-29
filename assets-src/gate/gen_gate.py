@@ -12,7 +12,7 @@ from PIL import Image
 random.seed(20260829)
 
 W, H = 128, 64
-OUT_BMP = r"E:\Github Project\Nagi_Games\signal-lost\godot\assets\images\Gate Cargo.bmp"
+OUT_BMP = r"E:\Github Project\Nagi_Games\before-the-silence\godot\assets\images\Gate Cargo.bmp"
 OUT_PNG = r"C:\Users\FJL03\.qoderworkcn\workspace\msk0v4pu83273vku\gate_preview.png"
 
 # ---- 色板 (与 Facade Panel / Wall Concrete 同族冷灰 + 锈色) ----

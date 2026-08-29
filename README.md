@@ -1,10 +1,10 @@
-# Signal Lost
+# 静默之前（Before the Silence）
 
-> **信号中断。** 2057 年，远东废墟区。诺亚生物科技的生物兵器实验事故导致变异体脱离控制，局部区域局势失控——你是公司派入封锁区的武装特遣队特工，任务：穿越变异体感染区，找到撤离信标。
+> **2026 年秋。** 外星寄生孢子 AE-219 最早坠落点——城区仓库区。EDAA 甄别处二级探员「提灯」先行渗透：确认孢子活动、保持信标，撑到熄烛者（Snuffers）01 队「雷暴」进场之前。
 >
-> *Signal Lost — a retro boomer shooter. A corporate bioweapon accident turned the ruins into a mutant hot zone. Fight through to the extraction beacon.*
+> *Before the Silence — a retro boomer shooter, prequel to Snuffers. Infiltrate the warehouse district where the alien spores first fell, and hold out until the Snuffers arrive.*
 
-Signal Lost 是一款复古第一人称射击游戏，仓库内包含**双引擎**实现：SDL2 + C++17 原版，以及采用「真 3D 几何 + 复古呈现层」技术的 Godot 4.6 重制版。节奏快、不刷分、不拖沓——拿枪，向前，活着撤离。
+「静默之前」是一款复古第一人称射击游戏（《Snuffers》前传），仓库内包含**双引擎**实现：SDL2 + C++17 原版，以及采用「真 3D 几何 + 复古呈现层」技术的 Godot 4.6 重制版。节奏快、不刷分、不拖沓——拿枪，向前，活着撤离。
 
 > 开发进度与 AI 协作交接 → [STATUS.md](STATUS.md)
 

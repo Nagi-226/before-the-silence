@@ -1,4 +1,4 @@
-# Signal Lost — 项目全量上下文
+# 静默之前（Before the Silence）— 项目全量上下文
 
 > 复古伪3D第一人称射击游戏。基于 SDL2 + C++17，10人 AI Agent 团队协作开发。
 > **当前版本: v0.6.0** | 目标: 达到 Build Engine 级别伪3D天花板效果

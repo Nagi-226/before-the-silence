@@ -1,11 +1,11 @@
 @echo off
 chcp 65001 >nul
-title Signal Lost - Godot Edition
+title Before the Silence - Godot Edition
 cd /d "%~dp0"
 
 echo.
 echo    ============================================
-echo      Signal Lost  -  Godot Remake
+echo      Before the Silence  -  Godot Remake
 echo      WASD move / Mouse aim / LMB shoot
 echo      R reload / Q or Wheel switch weapon / ESC menu
 echo    ============================================

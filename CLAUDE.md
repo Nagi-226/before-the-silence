@@ -1,4 +1,4 @@
-# Signal Lost — v0.6.0
+# 静默之前（Before the Silence）— v0.6.0
 
 复古伪3D FPS。SDL2 + C++17，5 层架构，10 人 Agent 团队协作开发。
 **127 测试 + 双地图/3难度/全游戏循环。详细 → PROJECT.md**
