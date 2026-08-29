@@ -31,6 +31,8 @@ var _health_test_done := false
 var _death_test_done := false
 var _flag_test_done := false
 var _p2b_climb_base_y := 0.0
+var _y_enemy: Node = null
+var _y_enemy_start_y := 0.0
 
 
 func _ready() -> void:
@@ -55,6 +57,7 @@ func _physics_process(_delta: float) -> void:
 		13: _test_edaa_narrative()
 		14: _test_menu_identity()
 		15: _test_p2b_terrain()
+		16: _test_enemy_y_config()
 		8: _test_initial_noop()
 		12: _setup_weapon_pickup()
 		25: _check_weapon_grant()
@@ -69,6 +72,10 @@ func _physics_process(_delta: float) -> void:
 		135: _check_death_collision()
 		140: _p2b_climb_setup()
 		185: _p2b_climb_check()
+		190: _enemy_y_setup()
+		240: _enemy_y_check()
+		243: _enemy_y_high_check()
+		250: _enemy_y_floor_check()
 		346: _finish()
 
 
@@ -526,6 +533,82 @@ func _p2b_climb_check() -> void:
 	_report(_player.global_position.x >= x0 and _player.global_position.x <= x1
 		and _player.global_position.z >= z0 and _player.global_position.z <= z1,
 		"玩家立于平台范围内: (%.1f, %.1f)" % [_player.global_position.x, _player.global_position.z])
+
+
+## A批2 · 敌人 y 感知(多层前置): 配置垂直差阈值 + 运行时加载验证。
+## 后续三步实测(190/240/243/250帧)用庭院既有平台/坡道:
+## 坡道追击上升(地面吸附=重力+move_and_slide天然成立) → 隔层不侦测 → 同层回归
+func _test_enemy_y_config() -> void:
+	var templates: Array = GameData.enemy_templates()
+	var all_have := templates.size() > 0
+	for t in templates:
+		var td: Dictionary = t
+		if not td.has("detectionVerticalTolerance") \
+				or float(td.get("detectionVerticalTolerance", 0.0)) <= 0.0:
+			all_have = false
+	_report(all_have, "敌人模板均配置垂直差阈值 detectionVerticalTolerance")
+	var enemies := get_tree().get_nodes_in_group("enemies")
+	if all_have and not enemies.is_empty():
+		var e0: Node = enemies[0]
+		_report(absf(float(e0.detection_vertical_tolerance) - 1.5) < 0.01,
+			"敌人运行时垂直阈值已加载: %.2fm (期望 1.5m)"
+			% float(e0.detection_vertical_tolerance))
+
+
+## 布置: 玩家瞬移庭院平台顶(P2b 爬坡测试同位), 新敌放坡底平地开始追击。
+## 平台高差1.3m < 阈值1.5m → 侦测成立, 敌人应沿坡道爬升追击
+func _enemy_y_setup() -> void:
+	_player.global_position = Vector3(363.0, 1.95, 58.0)  # 平台顶(顶面1.3m+站立0.65)
+	_y_enemy = preload("res://scenes/entities/Enemy.tscn").instantiate()
+	_y_enemy.template_id = 1
+	_y_enemy.projectile_root = _main.get_node("Viewport")
+	_entities.add_child(_y_enemy)
+	_y_enemy.global_position = Vector3(353.0, 0.0, 58.0)  # 坡底前平地(敌原点在脚底)
+	_y_enemy.velocity = Vector3.ZERO
+	# 伤害清零: 本测试只验行为, 不让玩家掉血干扰后续测试流
+	_y_enemy.fire_damage = 0
+	_y_enemy.melee_damage = 0
+	_y_enemy_start_y = 0.0
+
+
+## 检查: 敌人应已沿坡道追击上升(50帧×5m/s≈4m, 坡中段); 随后构造隔层场景
+func _enemy_y_check() -> void:
+	if not is_instance_valid(_y_enemy):
+		_report(false, "y感知测试敌人失效")
+		return
+	var ey := float(_y_enemy.global_position.y)
+	var ex := float(_y_enemy.global_position.x)
+	_report(ey > _y_enemy_start_y + 0.4,
+		"敌人沿坡道追击上升: y=%.2fm (起点%.2f, 地面吸附+爬坡实证)" % [ey, _y_enemy_start_y])
+	_report(ex > 354.0, "敌人朝平台玩家方向追击前进: x=%.1f" % ex)
+	# 构造隔层: 敌人瞬移至玩家正上方高差≈3.2m(模拟楼板阻隔, 下落余量充足)
+	_y_enemy.global_position = Vector3(363.0, 4.5, 55.0)
+	_y_enemy.velocity = Vector3.ZERO
+
+
+## 隔层断言: 高差超阈值 → 不侦测不追击不攻击(水平速度归零; 下落中 vy 不计入)
+func _enemy_y_high_check() -> void:
+	if not is_instance_valid(_y_enemy):
+		_report(false, "y感知测试敌人失效(隔层)")
+		return
+	_report(is_zero_approx(float(_y_enemy.velocity.x)) and is_zero_approx(float(_y_enemy.velocity.z)),
+		"隔层不侦测: 垂直差超阈值1.5m, 敌人静止不追击")
+	# 同层回归布置: 敌我均移到平台顶(敌原点=顶面1.3), 相距约6m(>攻击范围4m, 走追击分支)
+	_player.global_position = Vector3(365.0, 1.95, 58.0)
+	_y_enemy.global_position = Vector3(360.3, 1.3, 54.3)
+	_y_enemy.velocity = Vector3.ZERO
+
+
+## 同层回归断言: 高差消除后侦测恢复, 敌人重新追击(平地行为不变)
+func _enemy_y_floor_check() -> void:
+	if not is_instance_valid(_y_enemy):
+		_report(false, "y感知测试敌人失效(同层)")
+		return
+	var vsum := absf(float(_y_enemy.velocity.x)) + absf(float(_y_enemy.velocity.z))
+	_report(vsum > 0.1,
+		"同层侦测回归: 平台顶敌我约6m, 敌人恢复追击 (v=%.2f)" % vsum)
+	_y_enemy.queue_free()
+	_y_enemy = null
 
 
 func _setup_weapon_pickup() -> void:

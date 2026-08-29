@@ -8,6 +8,10 @@ signal fired
 
 const ProjectileScene := preload("res://scenes/weapons/Projectile.tscn")
 
+## 玩家原点离地高(胶囊中心): 敌原点在脚底(Enemy.tscn CollisionShape y=0.8/高1.6)。
+## 垂直差比较前先校准到同一脚部基准, 阈值语义才是纯地形高差
+const PLAYER_ORIGIN_LIFT := 0.65
+
 const PIXEL_SIZES := [0.0225, 0.02875, 0.0375]  # 小/中/大 体型 (64px AE-219 精灵, 值=米/像素, 世界高度与旧32px版一致)
 
 @onready var sprite: Sprite3D = $Sprite3D
@@ -21,6 +25,7 @@ var projectile_root: Node
 var health := 1
 var detection_range := 16.0
 var attack_range := 4.0
+var detection_vertical_tolerance := 1.5  # 垂直差阈值(米): |dy|超此值不侦测不追击不攻击(隔层防误侦测)
 var move_speed := 5.0
 var fire_damage := 1
 var fire_interval := 0.5
@@ -60,6 +65,7 @@ func _ready() -> void:
 	health = int(t.get("health", 1))
 	detection_range = float(t.get("detectionRange", 8.0)) * WorldConst.CELL
 	attack_range = float(t.get("attackRange", 2.0)) * WorldConst.CELL
+	detection_vertical_tolerance = maxf(float(t.get("detectionVerticalTolerance", 1.5)), 0.0)
 	move_speed = float(t.get("moveSpeed", 2.5)) * WorldConst.CELL
 	attack_mode = str(t.get("attackMode", "spore"))
 	melee_range = float(t.get("meleeRange", 0.0)) * WorldConst.CELL
@@ -109,10 +115,15 @@ func _physics_process(delta: float) -> void:
 		return
 	velocity.y -= _gravity * delta
 	var to_player := player.global_position - global_position
+	var dy := absf((player.global_position.y - PLAYER_ORIGIN_LIFT) - global_position.y)
 	to_player.y = 0.0
 	var dist := to_player.length()
 
-	if dist <= detection_range and dist > attack_range:
+	if dy > detection_vertical_tolerance:
+		# 隔层防护: 垂直差超阈值(楼板/高差阻隔)——不侦测不追击不攻击
+		velocity.x = 0.0
+		velocity.z = 0.0
+	elif dist <= detection_range and dist > attack_range:
 		var dir := to_player.normalized()
 		velocity.x = dir.x * move_speed
 		velocity.z = dir.z * move_speed
