@@ -180,6 +180,75 @@ func _apply_ext_map(cfg: Dictionary, entity_root: Node3D, buckets: Dictionary) -
 	flag.reached.connect(func(): goal_reached.emit())
 	entity_root.add_child(flag)
 
+	# B批2 · 建筑: 周界墙环(真几何进 buckets/wall_cells, AI/碰撞/小地图可用),
+	# door 在指定边开 2 格洞; 无 door = 封闭装饰体块(未来可补门)
+	for b in cfg.get("buildings", []):
+		var bd: Dictionary = b
+		var bx := int(bd.get("x", 0))
+		var by := int(bd.get("y", 0))
+		var bw := maxi(2, int(bd.get("w", 2)))
+		var bh := maxi(2, int(bd.get("h", 2)))
+		var bsym := str(bd.get("symbol", "X"))
+		if not WALL_TEXTURES.has(bsym):
+			bsym = "X"
+		var door: Dictionary = bd.get("door", {})
+		var door_side := str(door.get("side", ""))
+		var door_pos := int(door.get("pos", -1))
+		var door_w := maxi(0, int(door.get("w", 0)))
+		for yy in range(by, by + bh):
+			for xx in range(bx, bx + bw):
+				var on_ring := xx == bx or xx == bx + bw - 1 or yy == by or yy == by + bh - 1
+				if not on_ring:
+					continue
+				var on_door := false
+				if door_w > 0 and door_side != "":
+					match door_side:
+						"S":
+							on_door = yy == by + bh - 1 and xx >= bx + door_pos and xx < bx + door_pos + door_w
+						"N":
+							on_door = yy == by and xx >= bx + door_pos and xx < bx + door_pos + door_w
+						"W":
+							on_door = xx == bx and yy >= by + door_pos and yy < by + door_pos + door_w
+						"E":
+							on_door = xx == bx + bw - 1 and yy >= by + door_pos and yy < by + door_pos + door_w
+				if on_door:
+					continue
+				buckets[bsym].append(_cell_center(xx, yy))
+				wall_cells[Vector2i(xx, yy)] = bsym
+
+	# B批2 · 马路地面覆层(groundZones): 逐 zone 一块 PlaneMesh, 抬升防共面
+	# (序号递增微抬, 后写覆盖先写=路口补丁放最后)。纯视觉: 不进 wall_cells/
+	# buckets/碰撞/AI/小地图(零逻辑侵入); 人行道不覆 = Floor Tile 原样
+	var zones: Array = cfg.get("groundZones", [])
+	for zi in zones.size():
+		var zd: Dictionary = zones[zi]
+		var zr: Dictionary = zd.get("rect", {})
+		var zx := int(zr.get("x", 0))
+		var zy := int(zr.get("y", 0))
+		var zw := maxi(1, int(zr.get("w", 1)))
+		var zh := maxi(1, int(zr.get("h", 1)))
+		var ztex_path := str(zd.get("texture", ""))
+		if not ResourceLoader.exists(ztex_path):
+			push_warning("groundZones 贴图缺失: " + ztex_path)
+			continue
+		var zmat := StandardMaterial3D.new()
+		zmat.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
+		zmat.texture_filter = BaseMaterial3D.TEXTURE_FILTER_NEAREST
+		zmat.albedo_texture = load(ztex_path)
+		zmat.uv1_scale = Vector3(float(zw), float(zh), 1.0)
+		var zmesh := PlaneMesh.new()
+		zmesh.size = Vector2(float(zw) * WorldConst.CELL, float(zh) * WorldConst.CELL)
+		zmesh.material = zmat
+		var zmi := MeshInstance3D.new()
+		zmi.name = "GroundZone_%d" % zi
+		zmi.mesh = zmesh
+		zmi.position = Vector3(
+			(float(zx) + float(zw) * 0.5) * WorldConst.CELL,
+			0.01 + float(zi) * 0.002,
+			(float(zy) + float(zh) * 0.5) * WorldConst.CELL)
+		zmi.add_to_group("ground_zones")
+		add_child(zmi)
+
 	for e in cfg.get("enemies", []):
 		var ed: Dictionary = e
 		var enemy: Node3D = EnemyScene.instantiate()

@@ -55,6 +55,12 @@ func _test_campaign_config() -> void:
 			m2 = m
 	_report(not m2.is_empty() and int(m2.get("width", 0)) == 140 and int(m2.get("height", 0)) == 84,
 		"map2 外部地图配置就绪 (140×84 室外, level_ext.maps 管线)")
+	# B批2 · 马路覆层贴图均可加载(9 张沥青系)
+	var all_road_tex := true
+	for z in m2.get("groundZones", []):
+		if not ResourceLoader.exists(str((z as Dictionary).get("texture", ""))):
+			all_road_tex = false
+	_report(all_road_tex, "groundZones 贴图均可加载(马路交通线无缺失)")
 
 	var flags := []
 	for c in _entities.get_children():
@@ -94,9 +100,44 @@ func _test_campaign_flow() -> void:
 	await get_tree().physics_frame
 	_report(_main.map_index == 2, "转关后进入第二关 map2 (index=%d)" % _main.map_index)
 	_report(_main.state == "briefing", "转关后进入第二关简报态")
-	_report(_level.wall_cells.size() == 444,
-		"map2 灰盒围墙环: %d 格 (期望 444, 140×84 周界)" % _level.wall_cells.size())
+	# B批2 动态化: 墙格 = 围界环(444) + 建筑周界 - 门洞(布局实装后随配置演进)
+	var expect_cells := 444
+	var m2cfg: Dictionary = {}
+	for m in GameData.level_ext_cfg.get("maps", []):
+		if int((m as Dictionary).get("map", -1)) == 2:
+			m2cfg = m
+	for bb in m2cfg.get("buildings", []):
+		var bd: Dictionary = bb
+		var ring: int = 2 * (int(bd.get("w", 0)) + int(bd.get("h", 0))) - 4
+		ring -= maxi(0, int((bd.get("door", {}) as Dictionary).get("w", 0)))
+		expect_cells += ring
+	_report(_level.wall_cells.size() == expect_cells,
+		"map2 墙格: %d (期望 %d = 围界444 + 建筑周界-门洞)" % [_level.wall_cells.size(), expect_cells])
 	_report(_level.get_node_or_null("Ceiling") == null, "map2 室外无天花板 (outdoor)")
+	# B批2 · 建筑门洞开通与马路覆层
+	var b1: Dictionary = m2cfg.get("buildings", [])[0]
+	var door: Dictionary = b1.get("door", {})
+	var dx := int(b1.get("x", 0)) + int(door.get("pos", 0))
+	var dy := int(b1.get("y", 0)) + int(b1.get("h", 0)) - 1
+	_report(not _level.is_wall(dx, dy),
+		"转运站门洞已开 (%d,%d) 可进入" % [dx, dy])
+	var b1_cx := int(b1.get("x", 0)) + int(b1.get("w", 0)) / 2  # 建筑中心
+	var b1_cy := int(b1.get("y", 0)) + int(b1.get("h", 0)) / 2
+	_report(not _level.is_wall(b1_cx, b1_cy), "转运站室内可站立 (中心非墙)")
+	var expect_zones := 0
+	for z in m2cfg.get("groundZones", []):
+		if (z as Dictionary).has("rect"):
+			expect_zones += 1
+	var zones_nodes := get_tree().get_nodes_in_group("ground_zones")
+	_report(zones_nodes.size() == expect_zones,
+		"马路覆层 groundZones: %d 块 (期望 %d, 与配置一致)" % [zones_nodes.size(), expect_zones])
+	var expect_enemies := int(m2cfg.get("enemies", []).size())
+	var actual_enemies := 0
+	for e in get_tree().get_nodes_in_group("enemies"):
+		if is_instance_valid(e):
+			actual_enemies += 1
+	_report(actual_enemies == expect_enemies,
+		"map2 敌人: %d 个 (期望 %d, 建筑内+街面分布)" % [actual_enemies, expect_enemies])
 	_report(_player.weapon_tier == tier_before and bool(_player.weapon_owned[1]) == smg_owned,
 		"跨关保留: 武器持有与升级组件等级原样保留 (tier=%d)" % _player.weapon_tier)
 	_report(_player.ammo_clip == int(_player.weapons[_player.weapon_index]["clipSize"]),

@@ -87,24 +87,64 @@
   ],
   "maps": [
     {
-      "_comment": "B线·map2灰盒占位(批1): 140x84室外平地+石墙围界+西端出生+东北信标旗。批2起实装街道/建筑布局, 批3加T2阶梯地形, 批4做环境差异化。outdoor=true无天花板。",
+      "_comment": "B线·map2 城区街道(B批2布局实装): 主街东西6格带(row40-45: 人行道+沥青4+人行道) ×2次街(北) ×2南巷; B1转运站/B2便利店/B3派出所可进入(S边门洞); 南侧D1-D3无门装饰体块(实心周界, 未来可开门)。groundZones=马路覆层(逐行zone, 人行道不覆=Floor Tile原样, 路口纯沥青后写lift最高)。坐标均对照布局核验。",
       "map": 2,
       "name": "城区街道",
       "width": 140,
       "height": 84,
       "outdoor": true,
       "borderWall": { "symbol": "S" },
+      "buildings": [
+        { "name": "转运站", "x": 8,   "y": 6,  "w": 17, "h": 19, "symbol": "X", "door": { "side": "S", "pos": 8, "w": 2 } },
+        { "name": "便利店", "x": 68,  "y": 8,  "w": 11, "h": 11, "symbol": "M", "door": { "side": "S", "pos": 5, "w": 2 } },
+        { "name": "派出所", "x": 110, "y": 10, "w": 17, "h": 21, "symbol": "X", "door": { "side": "S", "pos": 8, "w": 2 } },
+        { "name": "装饰D1", "x": 10,  "y": 52, "w": 17, "h": 13, "symbol": "S" },
+        { "name": "装饰D2", "x": 40,  "y": 56, "w": 17, "h": 13, "symbol": "M" },
+        { "name": "装饰D3", "x": 84,  "y": 54, "w": 17, "h": 13, "symbol": "S" }
+      ],
       "spawn": { "x": 3, "y": 42 },
       "flag": { "x": 134, "y": 6 },
       "enemies": [
-        { "x": 70, "y": 42, "id": 1 },
-        { "x": 100, "y": 30, "id": 0 },
-        { "x": 110, "y": 60, "id": 2 }
+        { "x": 30, "y": 42, "id": 1 },
+        { "x": 90, "y": 43, "id": 0 },
+        { "x": 60, "y": 20, "id": 1 },
+        { "x": 102, "y": 15, "id": 0 },
+        { "x": 16, "y": 15, "id": 1 },
+        { "x": 16, "y": 20, "id": 2 },
+        { "x": 73, "y": 13, "id": 0 },
+        { "x": 118, "y": 20, "id": 1 },
+        { "x": 118, "y": 26, "id": 1 },
+        { "x": 128, "y": 12, "id": 2 }
       ],
       "pickups": [
-        { "x": 20, "y": 40, "symbol": "H" },
-        { "x": 30, "y": 50, "symbol": "A" },
-        { "x": 25, "y": 35, "symbol": "C" }
+        { "x": 20, "y": 42, "symbol": "A" },
+        { "x": 50, "y": 43, "symbol": "H" },
+        { "x": 12, "y": 10, "symbol": "h" },
+        { "x": 20, "y": 22, "symbol": "C" },
+        { "x": 70, "y": 10, "symbol": "A" },
+        { "x": 112, "y": 14, "symbol": "H" },
+        { "x": 124, "y": 28, "symbol": "C" },
+        { "x": 29, "y": 60, "symbol": "A" }
+      ],
+      "groundZones": [
+        { "_c": "主街沥青4行(横版): 白线-黄虚线-黄虚线-白线",
+          "rect": { "x": 1, "y": 41, "w": 138, "h": 1 }, "texture": "res://assets/images/Road Asphalt EdgeN.bmp" },
+        { "rect": { "x": 1, "y": 42, "w": 138, "h": 1 }, "texture": "res://assets/images/Road Asphalt CenterN.bmp" },
+        { "rect": { "x": 1, "y": 43, "w": 138, "h": 1 }, "texture": "res://assets/images/Road Asphalt CenterS.bmp" },
+        { "rect": { "x": 1, "y": 44, "w": 138, "h": 1 }, "texture": "res://assets/images/Road Asphalt EdgeS.bmp" },
+        { "_c": "次街A/B(竖版2格沥青, 无中心线)",
+          "rect": { "x": 59, "y": 1, "w": 1, "h": 39 }, "texture": "res://assets/images/Road Asphalt EdgeW.bmp" },
+        { "rect": { "x": 60, "y": 1, "w": 1, "h": 39 }, "texture": "res://assets/images/Road Asphalt EdgeE.bmp" },
+        { "rect": { "x": 101, "y": 1, "w": 1, "h": 39 }, "texture": "res://assets/images/Road Asphalt EdgeW.bmp" },
+        { "rect": { "x": 102, "y": 1, "w": 1, "h": 39 }, "texture": "res://assets/images/Road Asphalt EdgeE.bmp" },
+        { "_c": "南巷C/D(竖版2格沥青)",
+          "rect": { "x": 29, "y": 46, "w": 1, "h": 37 }, "texture": "res://assets/images/Road Asphalt EdgeW.bmp" },
+        { "rect": { "x": 30, "y": 46, "w": 1, "h": 37 }, "texture": "res://assets/images/Road Asphalt EdgeE.bmp" },
+        { "rect": { "x": 71, "y": 46, "w": 1, "h": 37 }, "texture": "res://assets/images/Road Asphalt EdgeW.bmp" },
+        { "rect": { "x": 72, "y": 46, "w": 1, "h": 37 }, "texture": "res://assets/images/Road Asphalt EdgeE.bmp" },
+        { "_c": "路口纯沥青(后写lift最高, 覆盖横竖线交叠)",
+          "rect": { "x": 59, "y": 41, "w": 2, "h": 4 }, "texture": "res://assets/images/Road Asphalt.bmp" },
+        { "rect": { "x": 101, "y": 41, "w": 2, "h": 4 }, "texture": "res://assets/images/Road Asphalt.bmp" }
       ]
     }
   ],
