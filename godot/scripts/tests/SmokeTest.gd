@@ -100,6 +100,14 @@ func _test_campaign_flow() -> void:
 	_report(_player.ammo_clip == int(_player.weapons[_player.weapon_index]["clipSize"]),
 		"跨关保留: 弹匣自动补满 (%d/%d)"
 		% [_player.ammo_clip, int(_player.weapons[_player.weapon_index]["clipSize"])])
+	# 转关重建小地图必须唯一: 旧实例不释放会导致旧图在半透明底板下幽灵显现
+	# (2026-08-30 用户实机发现, 守门方热修 HUD.setup_minimap 先 queue_free 旧节点)
+	var mm_count := 0
+	for c in _main.get_node("HUD").get_children():
+		if c.name == "MiniMap":
+			mm_count += 1
+	_report(mm_count == 1,
+		"转关后小地图唯一(旧实例已释放防幽灵叠加): %d 个" % mm_count)
 	_campaign_test_done = true
 
 
@@ -359,12 +367,15 @@ func _test_facade_props() -> void:
 		var x0 := int(dd.get("x", 0))
 		var y0 := int(dd.get("y", 0))
 		var dw := maxi(1, int(dd.get("w", 1)))
+		var dface := str(dd.get("face", "N"))
 		var on_wall := true
 		for i in dw:
-			if not _level.wall_cells.has(Vector2i(x0 + i, y0)):
+			# N/S 面贴花沿 x 覆盖 w 格; E/W 面沿 y 覆盖 w 格(与 _build_wall_decals 同口径)
+			var cell := Vector2i(x0, y0 + i) if (dface == "E" or dface == "W") else Vector2i(x0 + i, y0)
+			if not _level.wall_cells.has(cell):
 				on_wall = false
 		_report(on_wall,
-			"墙面贴花挂在真实墙格上: (%d,%d) 起 %d 格" % [x0, y0, dw])
+			"墙面贴花挂在真实墙格上: (%d,%d) 起 %d 格 face=%s" % [x0, y0, dw, dface])
 
 	# 逻辑零侵入不变式: 布景(立面/道具)不进碰撞层 → 碰撞体数恒等于墙格数
 	var col_body := _level.get_node_or_null("WallCollision")

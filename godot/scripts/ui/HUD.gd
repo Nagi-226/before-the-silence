@@ -249,6 +249,14 @@ func update_coins(amount: int) -> void:
 
 ## 右上角小地图: Main 在关卡构建后注入数据引用
 func setup_minimap(level: Node, player: Node3D, entities: Node3D) -> void:
+	# B线转关会重复调用：先摘除旧实例——否则旧图半透明底板(α=0.55)下
+	# 第一关迷宫幽灵显现（2026-08-30 用户实机发现，守门方热修）。
+	# 须先 remove_child 再 queue_free：queue_free 延迟生效，同名节点仍在树中
+	# 会让新节点被自动改名（MiniMap2），破坏路径引用
+	var old_mm := get_node_or_null("MiniMap")
+	if old_mm != null:
+		remove_child(old_mm)
+		old_mm.queue_free()
 	var mm: Control = MiniMapScript.new()
 	mm.name = "MiniMap"
 	add_child(mm)

@@ -352,9 +352,17 @@ func _build_wall_decals(map_index: int) -> void:
 		var width := float(w) * WorldConst.CELL
 		var height := WorldConst.WALL_HEIGHT
 		var offset := float(ed.get("offset", 0.05))
-		var cx := (float(x0) + float(w) * 0.5) * WorldConst.CELL
-		var cz := (float(y0) + 0.5) * WorldConst.CELL
 		var face := str(ed.get("face", "N"))
+		# N/S 面墙沿 x 延伸 w 格；E/W 面墙沿 y 延伸 w 格（2026-08-30 庭院东墙大门，
+		# 转关叙事贴花。覆盖格口径与 SmokeTest 贴花墙格断言一致）
+		var cx: float
+		var cz: float
+		if face == "E" or face == "W":
+			cx = (float(x0) + 0.5) * WorldConst.CELL
+			cz = (float(y0) + float(w) * 0.5) * WorldConst.CELL
+		else:
+			cx = (float(x0) + float(w) * 0.5) * WorldConst.CELL
+			cz = (float(y0) + 0.5) * WorldConst.CELL
 		var pos := Vector3.ZERO
 		var rot_y := 0.0
 		match face:
