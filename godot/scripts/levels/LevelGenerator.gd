@@ -601,20 +601,29 @@ func _build_floor_ceiling() -> void:
 	# outdoor 地图(如 map2 室外街道)无天花板, 露天由 Main 场景环境提供
 	if _outdoor:
 		return
-	# A线批3: 层区天花板挖洞——层区 rect 上方原 2.6m 天花板会压二层玩家头顶,
-	# 抬升为层顶板(base+WALL_HEIGHT), 周边区域按 2.6 环绕四条拼合(首期单夹层)
+	# A线批3/批4: 层区天花板挖洞——2.6 平面挖掉最外层区; 仅最高层生成顶板
+	# (退台露出的下层区上方露天=退台露台, 如二层南侧); 层区玩家净空 = base→层顶
 	if not _layer_rects.is_empty():
-		var lr: Dictionary = _layer_rects[0]
-		var r: Rect2i = lr["rect"]
-		var layer_top: float = float(lr["top"])
+		var outer: Rect2i = _layer_rects[0]["rect"]
+		var top_lr: Dictionary = _layer_rects[0]
+		for lrd in _layer_rects:
+			var rr: Rect2i = lrd["rect"]
+			if rr.get_area() > outer.get_area():
+				outer = rr
+			if int(lrd["floor"]) > int(top_lr["floor"]):
+				top_lr = lrd
+		var r: Rect2i = top_lr["rect"]
+		var layer_top: float = float(top_lr["top"])
 		var r_x1 := r.position.x + r.size.x
 		var r_y1 := r.position.y + r.size.y
-		_ceiling_band(0, 0, _map_w, r.position.y, WorldConst.WALL_HEIGHT)  # 北条
-		_ceiling_band(0, r_y1, _map_w, _map_h - r_y1, WorldConst.WALL_HEIGHT)  # 南条
-		_ceiling_band(0, r.position.y, r.position.x, r.size.y, WorldConst.WALL_HEIGHT)  # 西条
-		_ceiling_band(r_x1, r.position.y, _map_w - r_x1, r.size.y, WorldConst.WALL_HEIGHT)  # 东条
+		_ceiling_band(0, 0, _map_w, outer.position.y, WorldConst.WALL_HEIGHT)  # 北条
+		_ceiling_band(0, outer.position.y + outer.size.y, _map_w,
+			_map_h - outer.position.y - outer.size.y, WorldConst.WALL_HEIGHT)  # 南条
+		_ceiling_band(0, outer.position.y, outer.position.x, outer.size.y, WorldConst.WALL_HEIGHT)  # 西条
+		_ceiling_band(outer.position.x + outer.size.x, outer.position.y,
+			_map_w - outer.position.x - outer.size.x, outer.size.y, WorldConst.WALL_HEIGHT)  # 东条
 		_ceiling_band(r.position.x, r.position.y, r.size.x, r.size.y, layer_top,
-			"Ceiling")  # 层顶板(沿用 Ceiling 节点名, P2a 屋檐断言兼容)
+			"Ceiling")  # 最高层层顶板(沿用 Ceiling 节点名, P2a 屋檐断言兼容)
 		return
 	var ceil_mat := StandardMaterial3D.new()
 	ceil_mat.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
@@ -855,6 +864,7 @@ func _build_layers(map_index: int, entity_root: Node3D) -> void:
 			holes[Vector2i(int(hd.get("x", -1)), int(hd.get("y", -1)))] = true
 		_layer_cells[floor_n] = {}
 		_layer_rects.append({
+			"floor": floor_n,
 			"rect": Rect2i(x0, y0, rw, rh),
 			"top": base_h + WorldConst.WALL_HEIGHT,
 		})
