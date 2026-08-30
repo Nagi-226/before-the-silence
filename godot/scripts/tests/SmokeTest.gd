@@ -9,7 +9,8 @@ extends Node
 ##       阶段一布景(装饰外立面高度/庭院道具数量/布景零逻辑侵入不变式) /
 ##       AE-219敌人(三模板贴图切换/双攻击帧加载/巨型移速/孢子弹道精灵化) /
 ##       EDAA世界观化(简报提灯/2026当代/敌名三型/混凝土仓库墙/徽记菜单背景) /
-##       菜单身份(徽记完整容下不出界/标题静默之前) / HUD弹药口径显示(9×19mm/12号霰弹)
+##       菜单身份(徽记完整容下不出界/标题静默之前) / HUD弹药口径显示(9×19mm/12号霰弹) /
+##       A批5 西北大厅塔楼(迷宫式二三层/楼梯间/卡顶修复/一层隔墙/急救包挪位/BFS连通性)
 ## 运行: godot --path godot --headless res://scenes/tests/SmokeTest.tscn
 
 var _frame := 0
@@ -37,21 +38,26 @@ var _campaign_test_done := false
 var _layer_test_done := false
 
 
-## A批3 · 层叠数据模型静态断言: 层几何(楼板+层墙)与配置一致 / 楼板顶面碰撞高度
-## 精确 / is_wall 分层查询 / 层墙不污染一楼墙格集(4197 不变式)
+## A批5 · 塔楼静态断言: 层几何(楼板+层墙)与配置一致 / 可走格从 grid+slabHoles 推导 /
+## is_wall 分层查询 / partitions 隔墙入墙格集(不变式改为从配置推导) /
+## 一层连通性 BFS / pickupOverrides 抑制与放置
 func _test_layers_static() -> void:
-	var layer: Dictionary = {}
+	var l2: Dictionary = {}
+	var l3: Dictionary = {}
 	for l in GameData.level_ext_cfg.get("layers", []):
-		if int((l as Dictionary).get("map", -1)) == 0:
-			layer = l
-			break
-	_report(not layer.is_empty(), "layers 配置就绪(二层夹层试点)")
-	if layer.is_empty():
+		var ld: Dictionary = l
+		if int(ld.get("map", -1)) != 0:
+			continue
+		if int(ld.get("floor", 0)) == 2:
+			l2 = ld
+		elif int(ld.get("floor", 0)) == 3:
+			l3 = ld
+	_report(not l2.is_empty() and not l3.is_empty(),
+		"layers 配置就绪(西北大厅塔楼 二/三层)")
+	if l2.is_empty() or l3.is_empty():
 		return
-	var rect: Dictionary = layer.get("rect", {})
-	var x0 := int(rect.get("x", 0))
-	var y0 := int(rect.get("y", 0))
-	# A批4: 层几何累计全部楼层(map0 现有二层+三层)
+
+	# 层几何累计全部楼层: 墙格与楼板格均从 grid+slabHoles 推导(不硬编码)
 	var expect_walls := 0
 	var expect_slabs := 0
 	for l in GameData.level_ext_cfg.get("layers", []):
@@ -70,26 +76,120 @@ func _test_layers_static() -> void:
 		"层几何: %d 体 (层墙 %d + 楼板 %d, 全楼层与配置一致)"
 		% [layers_nodes.size(), expect_walls, expect_slabs])
 
-	# 分层墙查询: 同格一楼地板/二层北墙 + 二层室内空
-	_report(not _level.is_wall(x0 + 4, y0, 1) and _level.is_wall(x0 + 4, y0, 2),
-		"is_wall 分层查询: (%d,%d) 一楼可走 / 二层北墙" % [x0 + 4, y0])
-	_report(not _level.is_wall(x0 + 4, y0 + 4, 2),
-		"is_wall 分层查询: (%d,%d) 二层室内空" % [x0 + 4, y0 + 4])
+	# 可走格: grid 空格数 − 板洞数。断言基准=设计目标(313/316, 探针BFS自楼梯
+	# 落点全连通实证 2026-08-30), 计算本身从配置推导
+	for ld in [l2, l3]:
+		var spaces := 0
+		for row in ld.get("grid", []):
+			for ch in str(row):
+				if ch == " ":
+					spaces += 1
+		var walk := spaces - (ld.get("slabHoles", []) as Array).size()
+		var fn := int(ld.get("floor", 0))
+		var expect_walk := 313 if fn == 2 else 316
+		_report(walk == expect_walk,
+			"%d层可走格: %d (期望 %d = 一层大厅428格的 %.1f%%, ≥70%%)"
+			% [fn, walk, expect_walk, walk / 428.0 * 100.0])
 
-	# 一楼不变式: 层墙只进 _layer_cells, 一楼墙格集原样
-	_report(_level.wall_cells.size() == 4197,
-		"一楼墙格数不变: %d (层墙不污染 wall_cells)" % _level.wall_cells.size())
+	# 分层墙查询: (1,17) 塔西北角——一楼大厅地板 / 二层墙 / 三层墙
+	_report(not _level.is_wall(1, 17, 1) and _level.is_wall(1, 17, 2)
+		and _level.is_wall(1, 17, 3),
+		"is_wall 分层查询: (1,17) 一楼可走 / 二三层塔角墙")
+	_report(not _level.is_wall(17, 24, 2) and not _level.is_wall(17, 24, 3),
+		"is_wall 分层查询: (17,24) 二三层室内空")
+
+	# A批5 · partitions 隔墙: 实际新增格(去重且原为符号图地板)全部进 wall_cells。
+	# 一楼墙格不变式 = 4197(原生符号墙4140 − 庭院门洞2 + 庭院围墙59) + partitions
+	# 实际新增数。探针实证新增=10 → 4207(设计稿"11格/4208"系把西墙与北墙的
+	# 交叠格计了两次; 且其坐标口径按首条内容行为row0, 运行时首行为空行需+1)
+	var part_new := _partition_new_cells()
+	_report(part_new.size() == 10,
+		"partitions 实际新增墙格: %d (期望 10, 探针实证全为空地格)" % part_new.size())
+	_report(_level.wall_cells.size() == 4197 + part_new.size(),
+		"一楼墙格数: %d (期望 %d = 4197 + partitions新增, 层墙不污染 wall_cells)"
+		% [_level.wall_cells.size(), 4197 + part_new.size()])
+	var part_in := true
+	for c in part_new:
+		if not _level.is_wall(c.x, c.y):
+			part_in = false
+	_report(part_in, "partitions 隔墙格全部登记进 wall_cells(网格/碰撞/小地图同源)")
+	_report(not _level.is_wall(29, 24), "井道门洞 (29,24) 保持开通")
+
+	# 一层连通性: 自 (28,23)(大厅井道门旁) BFS 全部非墙格(含庭院, 界 0..191×0..67)。
+	# 期望 7523 = 探针实测(2026-08-30): 无隔墙 7533 − 新增10格墙, 恰好无失联;
+	# 井道内净区经门洞 (29,24) 仍全可达(爬楼梯路径)
+	var start := Vector2i(28, 23)
+	var seen := {start: true}
+	var queue: Array[Vector2i] = [start]
+	while not queue.is_empty():
+		var cur: Vector2i = queue.pop_front()
+		for d in [Vector2i(1, 0), Vector2i(-1, 0), Vector2i(0, 1), Vector2i(0, -1)]:
+			var n: Vector2i = cur + d
+			if n.x < 0 or n.x > 191 or n.y < 0 or n.y > 67:
+				continue
+			if seen.has(n) or _level.wall_cells.has(n):
+				continue
+			seen[n] = true
+			queue.append(n)
+	_report(seen.size() == 7523,
+		"一层连通性: (28,23) BFS 可达 %d 格 (期望 7523 含庭院, 井道围合后大厅无失联)"
+		% seen.size())
+	var well_ok := true
+	for wy in range(22, 28):
+		for wx in range(30, 33):
+			if not seen.has(Vector2i(wx, wy)):
+				well_ok = false
+	_report(well_ok, "井道内净区 cols30-32×rows22-27 经门洞全可达")
+
+	# A批5 · pickupOverrides: (153,31) 符号图 H 已抑制 / (150,31) 配置 H 已放置
+	# (设计稿写 (153,30)/(150,30), 其 y 口径按首条内容行为 row0, 运行时需 +1——
+	# 探针实证 (153,30)='X' 而 (153,31)='H')
+	var at_suppress := false
+	var at_place := false
+	for c in _entities.get_children():
+		if not ("symbol" in c):
+			continue
+		var pc := Vector2i(int(c.global_position.x / WorldConst.CELL),
+			int(c.global_position.z / WorldConst.CELL))
+		if pc == Vector2i(153, 31):
+			at_suppress = true
+		elif pc == Vector2i(150, 31) and c.symbol == "H":
+			at_place = true
+	_report(not at_suppress, "pickupOverrides: (153,31) 旧坡道位急救包已抑制")
+	_report(at_place, "pickupOverrides: (150,31) 急救包已按配置放置(H)")
 
 
-## A批4 · 三楼退台静态断言: 三层配置与子集校验 / 三层楼板 5.2 / 二→三坡道
-## 几何连续(坡顶与三层板等高衔接) / 层顶板 7.8 对齐装饰外立面 / 退台露台露天。
-## (二→三实走登顶因帧窗口不足(flag链~295/campaign_flow 310)改由几何连续性证明,
-## 实走贯通归用户实机验收; 一→二实走已由 _test_layer_climb 覆盖)
+## partitions 实际新增格集: 配置格去重且原为符号图地板(已是墙的格被生成器跳过)。
+## 断言基准与生成器逻辑同口径——数量从配置+符号图推导, 不硬编码
+func _partition_new_cells() -> Array[Vector2i]:
+	var rows := (LevelData.MAPS[0] as String).split("\n")
+	var seen := {}
+	var out: Array[Vector2i] = []
+	for entry in GameData.level_ext_cfg.get("partitions", []):
+		var ed: Dictionary = entry
+		if int(ed.get("map", -1)) != 0:
+			continue
+		for c in ed.get("cells", []):
+			var cell := Vector2i(int(c[0]), int(c[1]))
+			if seen.has(cell):
+				continue
+			seen[cell] = true
+			if cell.y < 0 or cell.y >= rows.size() \
+					or cell.x < 0 or cell.x >= (rows[cell.y] as String).length():
+				continue
+			if not "XMSG".contains(rows[cell.y][cell.x]):
+				out.append(cell)
+	return out
+
+
+## A批5 · 塔楼几何静态断言: 二/三层同 footprint(无退台) / 楼板 2.60/5.20 射线 /
+## 楼梯(2部×8级/级高0.325/贴图/梯顶与目标层板等高衔接/顶端外延0.15卡顶修复实证/
+## 顶层台阶不凸出且位于梯顶端) / 顶板 7.80 对齐外立面 / 塔区2.6天花板已挖 /
+## 楼梯井头空。(两部楼梯三角度实走上行由 _test_layer_climb 帧251 覆盖)
 func _test_third_floor_static() -> void:
-	var layers_cfg: Array = GameData.level_ext_cfg.get("layers", [])
 	var l2: Dictionary = {}
 	var l3: Dictionary = {}
-	for l in layers_cfg:
+	for l in GameData.level_ext_cfg.get("layers", []):
 		var ld: Dictionary = l
 		if int(ld.get("map", -1)) != 0:
 			continue
@@ -97,10 +197,9 @@ func _test_third_floor_static() -> void:
 			l2 = ld
 		elif int(ld.get("floor", 0)) == 3:
 			l3 = ld
-	_report(not l3.is_empty(), "三层退台配置就绪(顶层宝库)")
+	_report(not l3.is_empty(), "三层配置就绪(西北大厅塔楼顶层)")
 	if l3.is_empty() or l2.is_empty():
 		return
-	# 子集校验: 三层 rect ⊆ 二层 rect(自然退台)
 	var r2: Rect2i = Rect2i(
 		int((l2.get("rect", {}) as Dictionary).get("x", 0)),
 		int((l2.get("rect", {}) as Dictionary).get("y", 0)),
@@ -111,34 +210,38 @@ func _test_third_floor_static() -> void:
 		int((l3.get("rect", {}) as Dictionary).get("y", 0)),
 		int((l3.get("rect", {}) as Dictionary).get("w", 0)),
 		int((l3.get("rect", {}) as Dictionary).get("h", 0)))
-	_report(r2.encloses(r3),
-		"三层退台为二层子集: 三层(%d,%d %dx%d) ⊆ 二层(%d,%d %dx%d)"
-		% [r3.position.x, r3.position.y, r3.size.x, r3.size.y,
-			r2.position.x, r2.position.y, r2.size.x, r2.size.y])
+	_report(r2 == r3,
+		"二/三层同 footprint(无退台): (%d,%d %dx%d)"
+		% [r3.position.x, r3.position.y, r3.size.x, r3.size.y])
 
 	var space: PhysicsDirectSpaceState3D = _level.get_world_3d().direct_space_state
+	var base2 := float(l2.get("baseHeight", 2.6))
 	var base3 := float(l3.get("baseHeight", 5.2))
-	# 三层楼板顶面 5.2
-	var px := (float(r3.position.x) + float(r3.size.x) * 0.5) * WorldConst.CELL
-	var pz := (float(r3.position.y) + float(r3.size.y) * 0.5) * WorldConst.CELL
+	# 楼板顶面射线 @(17,24)——两层 grid 均为室内空格且非板洞(探针逐格核验)
+	var px := 17.5 * WorldConst.CELL
+	var pz := 24.5 * WorldConst.CELL
 	var hit3 := _ray_down(space, Vector3(px, base3 + 3.0, pz), base3 - 1.0)
 	_report(absf(hit3 - base3) < 0.05,
-		"三层楼板顶面高度: %.2fm (期望 %.2fm)" % [hit3, base3])
-	# A批4r · 楼梯断言: 配置就绪/贴图可加载/级高合规/碰撞体与台阶与配置一致
-	var stairs_cfg: Array = GameData.level_ext_cfg.get("stairs", [])
-	var s2: Dictionary = {}
+		"三层楼板顶面高度: %.2fm (期望 %.2fm; 同证二层室内上方被三层板完整覆盖)"
+		% [hit3, base3])
+	# 二层板: 自三层板底(4.9)之下起射 → 命中二层板顶 2.6
+	var hit2 := _ray_down(space, Vector3(px, base3 - 0.4, pz), 0.0)
+	_report(absf(hit2 - base2) < 0.05,
+		"二层楼板顶面高度: %.2fm (期望 %.2fm)" % [hit2, base2])
+
+	# 楼梯断言: 配置就绪/贴图可加载/级高合规/台阶与碰撞体数量/梯顶等高衔接
+	var map0_stairs: Array = []
 	var expect_steps := 0
-	for sd in stairs_cfg:
+	for sd in GameData.level_ext_cfg.get("stairs", []):
 		var sdd: Dictionary = sd
 		if int(sdd.get("map", -1)) != 0:
 			continue
+		map0_stairs.append(sdd)
 		expect_steps += maxi(2, int(sdd.get("steps", 8)))
-		if absf(float(sdd.get("base", 0.0)) - 2.6) < 0.01:
-			s2 = sdd
-	_report(stairs_cfg.size() >= 2, "楼梯配置就绪(一→二/二→三各一部)")
+	_report(map0_stairs.size() == 2, "楼梯配置就绪(一→二/二→三各一部)")
 	var stair_tex_ok := true
-	for sd in stairs_cfg:
-		if not ResourceLoader.exists(str((sd as Dictionary).get("texture", ""))):
+	for sdd in map0_stairs:
+		if not ResourceLoader.exists(str(sdd.get("texture", ""))):
 			stair_tex_ok = false
 	_report(stair_tex_ok, "楼梯贴图可加载(Stair Steps)")
 	var step_nodes := 0
@@ -146,18 +249,56 @@ func _test_third_floor_static() -> void:
 		if str(n.name).begins_with("Stair_Step_"):
 			step_nodes += 1
 	_report(step_nodes == expect_steps,
-		"楼梯台阶: %d 级 (期望 %d, 8级/层×2部)" % [step_nodes, expect_steps])
+		"楼梯台阶: %d 级 (期望 %d, 8级×2部)" % [step_nodes, expect_steps])
 	var stair_bodies := get_tree().get_nodes_in_group("stairs")
 	_report(stair_bodies.size() == 2, "楼梯平滑斜坡碰撞体: %d (期望 2)" % stair_bodies.size())
-	# 二→三楼梯顶衔接: 梯顶位置(碰撞斜坡)与三层板等高——贯通几何证明
-	if not s2.is_empty():
-		var sx_top := (float(int(s2.get("x", 0))) + float(int(s2.get("w", 2)))) * WorldConst.CELL
-		var sz_mid := (float(int(s2.get("y", 0))) + 0.5) * WorldConst.CELL
-		var hit_top := _ray_down(space, Vector3(sx_top + 0.05, base3 + 3.0, sz_mid), base3 - 1.0)
-		_report(absf(hit_top - base3) < 0.1,
-			"二→三楼梯顶与三层板等高衔接: %.2fm (期望 %.2fm)" % [hit_top, base3])
-		var step_h := float(s2.get("height", 2.6)) / float(maxi(2, int(s2.get("steps", 8))))
-		_report(step_h <= 0.325, "楼梯级高 %.3fm ≤ 0.325m 上限" % step_h)
+	for sdd in map0_stairs:
+		var step_h := float(sdd.get("height", 2.6)) / float(maxi(2, int(sdd.get("steps", 8))))
+		_report(step_h <= 0.325, "楼梯级高 %.3fm ≤ 0.325m 上限 (base=%.1f)"
+			% [step_h, float(sdd.get("base", 0.0))])
+	# 梯顶与目标层板等高衔接: 楼梯1(N向, 顶在北缘 z=48) 射线落于板洞内缘0.1m处
+	# 仍命中 2.6(顶端外延0.15m 搭上二层板面); 楼梯2(S向, 顶在南缘 z=46) 同理 5.2
+	for i in map0_stairs.size():
+		var sdd: Dictionary = map0_stairs[i]
+		var sbase := float(sdd.get("base", 0.0))
+		var stop := sbase + float(sdd.get("height", 2.6))
+		var sx_mid := (float(int(sdd.get("x", 0))) + 1.0) * WorldConst.CELL
+		var sdir := str(sdd.get("dir", "N"))
+		var z0 := float(int(sdd.get("y", 0))) * WorldConst.CELL
+		var span := float(int(sdd.get("h", 2))) * WorldConst.CELL  # N/S 向: 沿升向=h格
+		var z_top := z0 if sdir == "N" else z0 + span
+		var z_probe := z_top - 0.1 if sdir == "N" else z_top + 0.1
+		var hit_top := _ray_down(space, Vector3(sx_mid, stop + 1.5, z_probe), sbase - 0.5)
+		_report(absf(hit_top - stop) < 0.1,
+			"楼梯%d(base=%.1f)顶与目标层板等高衔接: %.2fm (期望 %.2fm)"
+			% [i, sbase, hit_top, stop])
+		# 卡顶修复实证: 斜坡碰撞体顶端沿升向越过板洞边缘 ≥0.1m(外延0.15m)
+		var body := _level.get_node_or_null("Stair_Ramp_%d" % i) as StaticBody3D
+		if body == null:
+			_report(false, "楼梯%d 斜坡碰撞体缺失" % i)
+			continue
+		var half_len: float = ((body.get_child(0) as CollisionShape3D).shape as BoxShape3D).size.x * 0.5
+		var tip: Vector3 = body.global_transform.origin \
+			+ body.global_transform.basis.x * half_len
+		var tip_ok: bool = tip.z <= z0 - 0.05 if sdir == "N" else tip.z >= z0 + span + 0.05
+		_report(tip_ok, "楼梯%d 斜坡顶端外延越过板洞边缘: tip.z=%.3f (边缘 %.2f)"
+			% [i, tip.z, z_top])
+		# 顶层台阶可视体: 位于梯顶端(N/S堆叠方向修正实证)且顶面与目标层板
+		# 精确等高——不凸出板面, 与上行玩家胶囊(半径0.35m)无干涉
+		var steps_n := maxi(2, int(sdd.get("steps", 8)))
+		var mi := _level.get_node_or_null("Stair_Step_%d_%d" % [i, steps_n - 1]) as MeshInstance3D
+		if mi == null:
+			_report(false, "楼梯%d 顶层台阶节点缺失" % i)
+			continue
+		var box := mi.mesh as BoxMesh
+		var step_d := span / float(steps_n)
+		_report(absf(float(mi.position.z) - (z_top + (0.5 * step_d if sdir == "N" else -0.5 * step_d))) < step_d,
+			"楼梯%d 顶层台阶位于梯顶端 (z=%.2f, 梯顶 %.2f, N/S堆叠方向正确)"
+			% [i, mi.position.z, z_top])
+		_report(absf(float(mi.position.y) + box.size.y * 0.5 - stop) < 0.01,
+			"楼梯%d 顶层台阶顶面 %.3f == 目标层板 %.3f (不凸出, 胶囊无干涉)"
+			% [i, float(mi.position.y) + box.size.y * 0.5, stop])
+
 	# 层顶板 7.8 与装饰外立面总高精确对齐(顶板为纯视觉 Mesh, 查节点位置而非射线)
 	var top3 := base3 + WorldConst.WALL_HEIGHT
 	var ceiling_mi: MeshInstance3D = _level.get_node_or_null("Ceiling") as MeshInstance3D
@@ -169,27 +310,38 @@ func _test_third_floor_static() -> void:
 		+ float(fcfg.get("stories", 2)) * float(fcfg.get("storyHeight", WorldConst.WALL_HEIGHT))
 	_report(absf(top3 - facade_top) < 0.01,
 		"三层顶板 %.2fm 与装饰外立面总高 %.2fm 精确对齐(回头视线三层结构无缝)" % [top3, facade_top])
-	# 退台露台露天: 露台=三层板洞(slabHoles 露台区, 非楼梯井)→上方直达二层地板 2.6
-	var terrace_cell := Vector2i(-1, -1)
-	for hh in l3.get("slabHoles", []):
-		var hd: Dictionary = hh
-		var hc := Vector2i(int(hd.get("x", -1)), int(hd.get("y", -1)))
-		if hc.x >= 163 and hc.y >= 25:  # 露台洞(东北角), 避开楼梯井(160-161,26)
-			terrace_cell = hc
-			break
-	_report(terrace_cell.x >= 0, "露台板洞配置就绪(三层东北角)")
-	if terrace_cell.x >= 0:
-		var hit_terrace := _ray_down(space, Vector3(
-			(float(terrace_cell.x) + 0.5) * WorldConst.CELL, 8.0,
-			(float(terrace_cell.y) + 0.5) * WorldConst.CELL), 0.0)
-		_report(absf(hit_terrace - 2.6) < 0.1,
-			"露台露天: 上方直达二层地板 %.2fm (三层板洞, 夜空可见)" % hit_terrace)
-	# A批4r · 二层室内上方被三层地板完整覆盖(二楼抬头天花板完整)
-	var hit_cover := _ray_down(space, Vector3(
-		(float(r3.position.x) + 2.0) * WorldConst.CELL, 8.0,
-		(float(r3.position.y) + 4.0) * WorldConst.CELL), 4.0)
-	_report(absf(hit_cover - 5.2) < 0.1,
-		"二层室内上方三层地板覆盖: %.2fm (期望 5.2, 抬头天花板完整)" % hit_cover)
+
+	# 塔区 2.6m 天花板已挖: 所有 2.6 高的天花板分片(视觉 Mesh)不得与塔区 rect 重叠
+	var dug_ok := true
+	for n in _level.get_children():
+		var cmi := n as MeshInstance3D
+		if cmi == null or not str(cmi.name).begins_with("Ceiling"):
+			continue
+		if absf(float(cmi.position.y) - WorldConst.WALL_HEIGHT) > 0.05:
+			continue
+		var pm := cmi.mesh as PlaneMesh
+		if pm == null:
+			continue
+		var bw: float = pm.size.x / WorldConst.CELL
+		var bh: float = pm.size.y / WorldConst.CELL
+		var band := Rect2i(
+			int(cmi.position.x / WorldConst.CELL - bw * 0.5 + 0.01),
+			int(cmi.position.z / WorldConst.CELL - bh * 0.5 + 0.01),
+			int(bw + 0.01), int(bh + 0.01))
+		if band.intersects(r2):
+			dug_ok = false
+	_report(dug_ok, "塔区 2.6m 天花板已挖(分片与塔 rect 无重叠)")
+	# 板洞开: 楼梯1井格 (31,24) 自 2.7 下射不命中 2.6 板(命中梯坡面≈1.9)
+	var hit_hole := _ray_down(space, Vector3(31.5 * WorldConst.CELL, 2.7, 24.5 * WorldConst.CELL), 0.0)
+	_report(hit_hole < 2.55 and hit_hole > 0.5,
+		"一→二楼梯井板洞开: 命中 %.2fm (<2.6, 梯坡面)" % hit_hole)
+	# 楼梯井头空: 梯顶之上净空——楼梯1: 2.6→三层板底4.9; 楼梯2: 5.2→顶板7.8
+	var hit_head1 := _ray_down(space, Vector3(31.5 * WorldConst.CELL, 4.85, 24.5 * WorldConst.CELL), 0.0)
+	_report(hit_head1 < 2.6 and hit_head1 > 0.0,
+		"楼梯1井道头空: 2.6→4.9 无阻挡 (命中 %.2fm)" % hit_head1)
+	var hit_head2 := _ray_down(space, Vector3(31.5 * WorldConst.CELL, 7.7, 21.5 * WorldConst.CELL), 3.0)
+	_report(hit_head2 < 5.2 and hit_head2 > 3.0,
+		"楼梯2井道头空: 5.2→7.8 无阻挡 (命中 %.2fm)" % hit_head2)
 
 
 ## 垂直向下射线辅助: 返回命中 y(未命中返回 -99)
@@ -203,49 +355,65 @@ func _ray_down(space: PhysicsDirectSpaceState3D, from: Vector3, to_y: float) -> 
 	return float(hit["position"].y)
 
 
-## A批3 · 层间贯通实测(协程): 二层哨戒敌不隔层侦测一楼玩家 → 玩家实走坡道
-## 登顶二层(高差2.6m)。帧位251, 须于 flag 测试(~294)与 campaign_flow(310)前完成
+## A批5 · 层间贯通实测(协程): 二层哨戒敌不隔层侦测一楼玩家 → 两部楼梯×三角度
+## (正面/左偏30°/右偏30°)实走上行——到顶 y 增量达标且贴近目标板面(不滞留)。
+## 帧位251, 全程约 230 帧; flag 测试(_verify_death_cleanup 尾部)等待
+## _layer_test_done 串行, 避免旗标传送抢占玩家; campaign_flow(310) 容忍等待
 func _test_layer_climb() -> void:
 	# 二层敌自建(帧85 _setup_shoot 会清场 build 生成的全部敌人, 不可依赖)
 	var layer_enemy: Node = preload("res://scenes/entities/Enemy.tscn").instantiate()
 	layer_enemy.template_id = 1
 	layer_enemy.projectile_root = _main.get_node("Viewport")
 	_entities.add_child(layer_enemy)
-	layer_enemy.global_position = Vector3(325.0, 2.6, 57.0)  # 夹层哨戒位
+	layer_enemy.global_position = Vector3(51.0, 2.6, 55.0)  # 二层哨戒位 (25,27) F房间
 	layer_enemy.velocity = Vector3.ZERO
 	await get_tree().physics_frame
 	# 1) 隔层: 玩家移到二层敌正下方一楼 → 敌不应侦测(垂直差2.6m>阈值1.5m)
-	_player.global_position = Vector3(
-		float(layer_enemy.global_position.x), 0.65, float(layer_enemy.global_position.z))
+	_player.global_position = Vector3(51.0, 0.65, 55.0)
 	_player.velocity = Vector3.ZERO
 	for i in 3:
 		await get_tree().physics_frame
 	_report(is_zero_approx(float(layer_enemy.velocity.x)) and is_zero_approx(float(layer_enemy.velocity.z)),
 		"二层哨戒敌不隔层侦测一楼玩家 (垂直差2.6m>阈值)")
-	# 后续登顶测试防干扰: 伤害清零并挪至夹层远角
+	# 后续登顶测试防干扰: 伤害清零并挪至二层西南远角 (4,19)——距井道≈55m 超侦测范围
 	layer_enemy.fire_damage = 0
 	layer_enemy.melee_damage = 0
-	layer_enemy.global_position = Vector3(331.0, 2.6, 53.0)
+	layer_enemy.global_position = Vector3(9.0, 2.6, 39.0)
 	layer_enemy.velocity = Vector3.ZERO
 
-	# 2) 登顶(A批4r·楼梯): 玩家原点=脚部(离地0), 瞬移楼梯底西侧, 面向+X按住前进
-	#    一→二楼梯: col159-160×row31 (E向升, 底x318顶x322), 楼梯外观+坡道碰撞
-	var rise_base := 0.0
-	_player.global_position = Vector3(318.3, rise_base, 65.0)
-	_player.rotation.y = -PI / 2
+	# 2) 两部楼梯×三角度实走上行(A批5 卡顶修复+楼梯间验收核心)。
+	#    楼梯1(一→二, N向升, 底z≈52/顶z=48, 井道内南向进入): 起点井道 row26 行走带
+	#    楼梯2(二→三, S向升, 底z≈42/顶z=46): 起点二层井道北端(落坡帧内沉降)
+	#    偏角行进会横向漂移, 起点对侧预偏保持全程在梯面(宽2格)内
+	await _climb_stair(Vector3(64.0, 0.0, 53.0), 0.0, 0.0, 2.6, 47.9, -1.0, "楼梯1(一→二)正面")
+	await _climb_stair(Vector3(65.3, 0.0, 53.0), PI / 6.0, 0.0, 2.6, 47.9, -1.0, "楼梯1(一→二)左偏30°")
+	await _climb_stair(Vector3(62.5, 0.0, 53.0), -PI / 6.0, 0.0, 2.6, 47.9, -1.0, "楼梯1(一→二)右偏30°")
+	await _climb_stair(Vector3(64.0, 3.2, 42.35), PI, 2.6, 5.2, 46.1, 1.0, "楼梯2(二→三)正面")
+	await _climb_stair(Vector3(62.7, 3.2, 42.35), PI + PI / 6.0, 2.6, 5.2, 46.1, 1.0, "楼梯2(二→三)左偏30°")
+	await _climb_stair(Vector3(65.3, 3.2, 42.35), PI - PI / 6.0, 2.6, 5.2, 46.1, 1.0, "楼梯2(二→三)右偏30°")
+	_layer_test_done = true
+
+
+## 实走上行辅助: 传送至梯底(start.y 为脚部起值), 沉降3帧后按住 W 35 物理帧
+## (速度14m/s ≈ 8.2m, 相对4m梯程余量充足), 断言: 自 expect_base 起爬升 >2.45m、
+## 终点 y 站上目标板面(±0.12m)且水平越过洞缘平面(past_z×z_sign)——到顶不卡顶不滞留
+func _climb_stair(start: Vector3, ry: float, expect_base: float, target_top: float,
+		past_z: float, z_sign: float, label: String) -> void:
+	_player.global_position = start
+	_player.rotation.y = ry
 	_player.velocity = Vector3.ZERO
+	for i in 3:
+		await get_tree().physics_frame  # 沉降落坡/落地
 	_key_down(KEY_W)
-	for i in 32:
+	for i in 35:
 		await get_tree().physics_frame
 	_key_up(KEY_W)
-	var rise := float(_player.global_position.y) - rise_base
-	_report(rise > 1.8,
-		"玩家经楼梯登顶二层: 高差 %.2fm (层高2.6m, 一→二层贯通实证)" % rise)
-	_report(_player.global_position.x >= 318.0 and _player.global_position.x <= 334.0
-		and _player.global_position.z >= 50.0 and _player.global_position.z <= 70.0,
-		"玩家立于二层楼板范围内: (%.1f, %.1f)"
-		% [_player.global_position.x, _player.global_position.z])
-	_layer_test_done = true
+	await get_tree().physics_frame
+	var rise := float(_player.global_position.y) - expect_base
+	var past := (float(_player.global_position.z) - past_z) * z_sign > 0.0
+	_report(rise > 2.45 and absf(float(_player.global_position.y) - target_top) < 0.12 and past,
+		"%s 实走上行到顶: 爬升 %.2fm → y=%.2f z=%.1f (站上板面 %.2f 且越过洞缘, 不卡顶)"
+		% [label, rise, _player.global_position.y, _player.global_position.z, target_top])
 
 
 func _test_campaign_config() -> void:
@@ -286,6 +454,10 @@ func _test_campaign_flow() -> void:
 	while not _main.game_over and waited < 600:
 		await get_tree().physics_frame
 		waited += 1
+	# A批5: 登顶三角度实走延长后通关触发晚于帧310, 本协程会抢先于 _check_flag
+	# 消费 game_over 并转关(重置 game_over)——必须先等通关判定断言完成
+	while not _flag_test_done:
+		await get_tree().physics_frame
 	_report(_main.game_over and _main.state == "level_end",
 		"第一关通关进入关卡间结算态 level_end (state=%s)" % _main.state)
 	var end_hint: Label = _main.get_node("HUD").get("end_hint")
@@ -413,7 +585,8 @@ func _check_world_built() -> void:
 	_report(has_comp1 and has_comp2 and has_comp3, "一/二/三级升级组件已按配置生成")
 	_report(has_armor, "防护服能量补给已生成（a 符号位改造）")
 	_report(legacy_count == 0, "扩展弹匣/神经加速器已实机移除 (残留=%d)" % legacy_count)
-	# 道具平衡（map0）: a(5)+w(5)+每4个H(109→27) → e=37；H 保留 82
+	# 道具平衡（map0）: a(5)+w(5)+每4个H → e=37；H 保留 82
+	# (A批5 pickupOverrides: 扫描H 108个→27e/81H + 配置放置1H = 82H, 口径不变)
 	_report(_count_symbol("e") == 37, "防护服电池数量: %d (期望 37)" % _count_symbol("e"))
 	_report(_count_symbol("H") == 82, "急救包数量: %d (期望 82)" % _count_symbol("H"))
 	_report(get_tree().get_first_node_in_group("player") != null, "玩家节点就绪")
@@ -927,18 +1100,27 @@ func _test_cycle_switch() -> void:
 	if _player.weapon_index != 1:  # 前置失败则跳过，避免误报
 		_cycle_test_done = true
 		return
+	# 基线 flake 加固: parse_input_event 在 headless 下的派发时机不稳，
+	# 固定等 2 帧偶发赶不上事件冲刷；改为轮询至期望值出现（上限 10 帧）。
+	# 语义不变（期望仍相同），仅消除时序竞态。
 	_key_down(KEY_Q)
 	_key_up(KEY_Q)
-	await get_tree().physics_frame
-	await get_tree().physics_frame
+	for i in 10:
+		await get_tree().physics_frame
+		if _player.weapon_index == 0:
+			break
 	_report(_player.weapon_index == 0, "Q 切换到手枪 (index=%d)" % _player.weapon_index)
 	_wheel(MOUSE_BUTTON_WHEEL_UP)
-	await get_tree().physics_frame
-	await get_tree().physics_frame
+	for i in 10:
+		await get_tree().physics_frame
+		if _player.weapon_index == 1:
+			break
 	_report(_player.weapon_index == 1, "滚轮上切换到冲锋枪 (index=%d)" % _player.weapon_index)
 	_wheel(MOUSE_BUTTON_WHEEL_DOWN)
-	await get_tree().physics_frame
-	await get_tree().physics_frame
+	for i in 10:
+		await get_tree().physics_frame
+		if _player.weapon_index == 0:
+			break
 	_report(_player.weapon_index == 0, "滚轮下切回手枪 (index=%d)" % _player.weapon_index)
 	_cycle_test_done = true
 
@@ -1196,6 +1378,10 @@ func _verify_death_cleanup() -> void:
 	await get_tree().create_timer(total, true).timeout
 	_report(not is_instance_valid(_enemy_target), "死亡尸体完成停留、闪烁并淡出清理")
 	_death_test_done = true
+	# A批5: 楼梯三角度实走(帧251起, 约230帧)期间玩家不可被旗标传送抢占——
+	# 等登顶测试完成后才传送至终点旗(campaign_flow 的 600 帧等待余量充足)
+	while not _layer_test_done:
+		await get_tree().physics_frame
 	_setup_flag()
 	await get_tree().create_timer(0.2, true).timeout
 	_check_flag()

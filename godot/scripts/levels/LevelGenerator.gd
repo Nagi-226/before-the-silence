@@ -59,12 +59,17 @@ func build(map_index: int, entity_root: Node3D) -> Vector3:
 	_outdoor = false
 	# B线: goals 命中且 suppressDataFlag → 抑制符号图 F 旗(改由配置旗接管)
 	var suppress_flag := _goal_suppress_data_flag(map_index)
+	# A批5: pickupOverrides.suppress — 符号图拾取生成跳过配置格(通用数组机制)
+	var pickup_suppress := _pickup_suppress_cells(map_index)
 
 	for y in rows.size():
 		var row: String = rows[y]
 		for x in row.length():
 			var ch := row[x]
 			var ground := _cell_center(x, y)
+			if not pickup_suppress.is_empty() and "HCAhaw".contains(ch) \
+					and pickup_suppress.has(Vector2i(x, y)):
+				continue
 			match ch:
 				"X", "M", "S", "G":
 					buckets[ch].append(ground)
@@ -114,6 +119,7 @@ func build(map_index: int, entity_root: Node3D) -> Vector3:
 
 	if ext_map.is_empty():
 		_apply_courtyard(map_index, buckets)
+		_apply_partitions(map_index, buckets)
 	else:
 		spawn = _apply_ext_map(ext_map, entity_root, buckets)
 	_build_walls(buckets)
@@ -130,6 +136,7 @@ func build(map_index: int, entity_root: Node3D) -> Vector3:
 	_spawn_shell_pickups(map_index, entity_root)
 	_spawn_upgrade_components(map_index, entity_root)
 	_spawn_goal_flags(map_index, entity_root)
+	_apply_pickup_overrides(map_index, entity_root)
 	return Vector3(spawn.x, 0.65, spawn.z)
 
 
@@ -283,6 +290,55 @@ func _apply_courtyard(map_index: int, buckets: Dictionary) -> void:
 					wall_cells[cell] = symbol
 			else:
 				_courtyard_cells.append(cell)
+
+
+## A批5 · 一层隔墙(partitions): 把配置格登记进 wall_cells/buckets, 与原生墙一致的
+## 网格/碰撞/小地图表现(渲染/碰撞/小地图均从 wall_cells+buckets 派生, 登记即全链路生效)。
+## 已是墙的格(原生墙/同配置重复格/庭院围墙)跳过防重复建墙; LevelData 零触碰。
+## cells 为 [x,y] 对数组; symbol 缺省 X(混凝土, 与仓库内部墙一致)。
+func _apply_partitions(map_index: int, buckets: Dictionary) -> void:
+	for entry in GameData.level_ext_cfg.get("partitions", []):
+		var ed: Dictionary = entry
+		if int(ed.get("map", -1)) != map_index:
+			continue
+		var symbol := str(ed.get("symbol", "X"))
+		if not WALL_TEXTURES.has(symbol):
+			symbol = "X"
+		for c in ed.get("cells", []):
+			var cell := Vector2i(int(c[0]), int(c[1]))
+			if wall_cells.has(cell):
+				continue
+			buckets[symbol].append(_cell_center(cell.x, cell.y))
+			wall_cells[cell] = symbol
+
+
+## A批5 · pickupOverrides.suppress: 需在符号扫描中跳过的拾取格集(通用, 可多条)
+func _pickup_suppress_cells(map_index: int) -> Dictionary:
+	var out := {}
+	for entry in GameData.level_ext_cfg.get("pickupOverrides", []):
+		var ed: Dictionary = entry
+		if int(ed.get("map", -1)) != map_index:
+			continue
+		var s: Dictionary = ed.get("suppress", {})
+		if not s.is_empty():
+			out[Vector2i(int(s.get("x", -1)), int(s.get("y", -1)))] = true
+	return out
+
+
+## A批5 · pickupOverrides.place: 按配置落拾取(符号直给, 不介入 H→e 平衡计数——
+## 挪位语义=同一个急救包换位置, 全场 H/e 总量口径不变)
+func _apply_pickup_overrides(map_index: int, entity_root: Node3D) -> void:
+	for entry in GameData.level_ext_cfg.get("pickupOverrides", []):
+		var ed: Dictionary = entry
+		if int(ed.get("map", -1)) != map_index:
+			continue
+		var p: Dictionary = ed.get("place", {})
+		if p.is_empty():
+			continue
+		var pickup: Node3D = PickupScene.instantiate()
+		pickup.position = _cell_center(int(p.get("x", 0)), int(p.get("y", 0)))
+		pickup.symbol = str(p.get("symbol", "H"))
+		entity_root.add_child(pickup)
 
 
 ## 混合路线阶段一: 装饰外立面。现有墙顶(2.6m)之上叠 stories 层窗户带 + 女儿墙,
@@ -763,6 +819,7 @@ func _terrain_base_y(cfg: Dictionary) -> float:
 ## A批4r · 正经楼梯: 逐级 BoxMesh 台阶(纯视觉, 8级/层, 级高≤0.325m) +
 ## 平滑斜坡碰撞(楼梯外观+坡道行走——业界常规, 纯踏步碰撞会卡脚/滑步)。
 ## 底/顶落板等高衔接(碰撞几何同 ramp); 楼梯井穿板洞由 layers.slabHoles 配置
+## A批5: 顶端水平外延0.15m搭楼板面(卡顶修复); N/S 向台阶堆叠方向修正(原写反)
 func _build_stairs(map_index: int) -> void:
 	var idx := 0
 	for entry in GameData.level_ext_cfg.get("stairs", []):
@@ -799,25 +856,33 @@ func _build_stair(idx: int, cfg: Dictionary) -> bool:
 	var z0 := float(y) * WorldConst.CELL
 	var cx := x0 + float(w) * WorldConst.CELL * 0.5
 	var cz := z0 + float(h) * WorldConst.CELL * 0.5
-	var overlap := 0.05
+	# A批5 卡顶修复(实证推导): 坡面线必须穿过板洞沿角点(洞缘平面×目标板面高度)。
+	# 原方案"顶端水平外延0.15m、坡顶仍止于2.6"实测仍楔住: 胶囊(半径0.35)底球被
+	# 洞缘竖直唇沿挡停(top−0.24m处, 接触法线≈65°判为墙)。修法: 低端外延5cm咬合
+	# 地面不变; 坡线锚定角点(等高衔接), 顶端自角点沿坡向再外延0.15m搭进楼板——
+	# 唇沿上凸仅≈8cm且接触法线≈33°<45°(floor_max_angle), 胶囊滑上而非楔住。
+	# 实走验证: SmokeTest 两部楼梯×三角度上行全部到顶(站上目标板面)
+	var overlap_low := 0.05
+	var overlap_high := 0.15
 	var low := Vector3.ZERO
-	var high := Vector3.ZERO
+	var corner := Vector3.ZERO
 	match dir:
 		"E":
-			low = Vector3(x0 - overlap, base_y, cz)
-			high = Vector3(x0 + span + overlap, base_y + height, cz)
+			low = Vector3(x0 - overlap_low, base_y, cz)
+			corner = Vector3(x0 + span, base_y + height, cz)
 		"W":
-			low = Vector3(x0 + span + overlap, base_y, cz)
-			high = Vector3(x0 - overlap, base_y + height, cz)
+			low = Vector3(x0 + span + overlap_low, base_y, cz)
+			corner = Vector3(x0, base_y + height, cz)
 		"S":
-			low = Vector3(cx, base_y, z0 - overlap)
-			high = Vector3(cx, base_y + height, z0 + span + overlap)
+			low = Vector3(cx, base_y, z0 - overlap_low)
+			corner = Vector3(cx, base_y + height, z0 + span)
 		"N":
-			low = Vector3(cx, base_y, z0 + span + overlap)
-			high = Vector3(cx, base_y + height, z0 - overlap)
+			low = Vector3(cx, base_y, z0 + span + overlap_low)
+			corner = Vector3(cx, base_y + height, z0)
 		_:
 			push_warning("stairs 未知 dir: " + dir)
 			return false
+	var high := corner + (corner - low).normalized() * overlap_high
 
 	# 碰撞: 平滑斜坡(无视觉 mesh, 视觉由台阶群承担)——楼梯外观+坡道行走
 	var fwd := (high - low).normalized()
@@ -858,8 +923,11 @@ func _build_stair(idx: int, cfg: Dictionary) -> bool:
 			box.size = Vector3(step_d, step_h * float(i + 1), width)
 			mi.position = Vector3(s0 + step_d * 0.5, base_y + step_h * float(i + 1) * 0.5, cz)
 		else:
-			# N: 自南向北逐级升高; S: 自北向南
-			var t0 := z0 + (span * float(i) / float(steps) if dir == "N" \
+			# N: 自南向北逐级升高(低端在南); S: 自北向南(低端在北)
+			# A批5修复: 原 N/S 分支写反(低端堆了最高台阶——顶层台阶盒堵在楼梯入口,
+			# 与上行玩家胶囊视觉干涉); 旧楼梯均为 E 向从未暴露。顶层台阶顶面恰为
+			# base+height 与目标层板等高, 不凸出(胶囊半径0.35m 无干涉)
+			var t0 := z0 + (span * float(i) / float(steps) if dir == "S" \
 				else span * float(steps - i - 1) / float(steps))
 			box.size = Vector3(width, step_h * float(i + 1), step_d)
 			mi.position = Vector3(cx, base_y + step_h * float(i + 1) * 0.5, t0 + step_d * 0.5)
