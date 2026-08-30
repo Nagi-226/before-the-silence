@@ -14,7 +14,7 @@ const MAIN_MENU_SCENE := "res://scenes/ui/MainMenu.tscn"
 @onready var hud: CanvasLayer = $HUD
 
 var game_over := false
-var state := "briefing"  # briefing / play / ended
+var state := "briefing"  # briefing / play / level_end(关卡间结算) / ended
 var map_index := 0
 
 var _pause_menu: Node
@@ -24,12 +24,16 @@ var _start_msec := 0
 var _hints := []  # {pos: Vector3, radius: float, text: String, shown: bool}
 var _seen_pickup_types := {}
 var _enemy_names: Array = []
+# B线·转关: campaign 游标与每关统计快照(结算显示本关增量)
+var _campaign_cursor := 0
+var _level_start := {"kills": 0, "pickups": 0, "shots": 0, "hits": 0}
 
 
 func _ready() -> void:
 	process_mode = Node.PROCESS_MODE_ALWAYS
 	view_rect.texture = viewport.get_texture()
 	player.projectile_root = viewport
+	map_index = int(_campaign_sequence()[0])
 	var spawn: Vector3 = level.build(map_index, entities)
 	player.global_position = spawn
 	hud.setup_minimap(level, player, entities)
@@ -45,6 +49,14 @@ func _ready() -> void:
 	var briefing: Dictionary = briefings[map_index] if map_index < briefings.size() else {}
 	hud.show_briefing(briefing)
 	get_tree().paused = true
+
+
+## B线·关卡流程序列(level_ext.campaign.sequence, 缺省单关回退现状行为)
+func _campaign_sequence() -> Array:
+	var d: Dictionary = GameData.level_ext_cfg.get("campaign", {})
+	if d.is_empty():
+		return [0]
+	return d.get("sequence", [0])
 
 
 func _connect_player() -> void:
@@ -125,6 +137,15 @@ func _unhandled_input(event: InputEvent) -> void:
 			player.cycle_weapon(-1)
 		elif event.is_action_pressed("ui_cancel"):
 			_open_pause()
+	elif state == "level_end":
+		# B线·关卡间结算: Enter 进入下一关 / R 重打本关 / ESC 返回主菜单
+		if event is InputEventKey and event.pressed and not event.echo:
+			if event.physical_keycode == KEY_ENTER:
+				_advance_level()
+			elif event.physical_keycode == KEY_R:
+				_restart()
+			elif event.physical_keycode == KEY_ESCAPE:
+				_go_main_menu()
 	elif state == "ended":
 		if event is InputEventKey and event.pressed and not event.echo:
 			if event.physical_keycode == KEY_ENTER or event.physical_keycode == KEY_R:
@@ -141,6 +162,13 @@ func dismiss_briefing() -> void:
 	get_tree().paused = false
 	Input.mouse_mode = Input.MOUSE_MODE_CAPTURED
 	_start_msec = Time.get_ticks_msec()
+	# B线·每关统计快照(结算显示本关增量: 击杀/拾取/命中率/用时)
+	_level_start = {
+		"kills": _kills,
+		"pickups": _pickups_taken,
+		"shots": player.shots_fired,
+		"hits": player.hits_landed,
+	}
 	GameData.play_sfx("UISelect")
 
 
@@ -217,12 +245,59 @@ func _on_victory() -> void:
 	if game_over:
 		return
 	game_over = true
-	state = "ended"
 	get_tree().paused = true
 	GameData.play_sfx("Victory")
 	var victories: Array = GameData.narrative_cfg.get("victory", [])
 	var story: String = str(victories[map_index]) if map_index < victories.size() else ""
-	hud.show_end(true, story, _stats_text())
+	# B线·转关: 流程还有下一关 → 关卡间结算态(level_end); 最终关 → 终局结算(ended)
+	var has_next: bool = _campaign_cursor + 1 < _campaign_sequence().size()
+	if has_next:
+		state = "level_end"
+		hud.show_end(true, story, _stats_text(), true)
+	else:
+		state = "ended"
+		hud.show_end(true, story, _stats_text())
+
+
+## B线·转关: 场景内重建下一关(保留 Player 实例 → 武器/升级/备弹/生命天然跨关保留,
+## 免序列化)。清场(实体/关卡几何/残留弹道) → 重建 → 重连信号 → 下一关简报。
+func _advance_level() -> void:
+	if state != "level_end":
+		return
+	var seq := _campaign_sequence()
+	_campaign_cursor += 1
+	if _campaign_cursor >= seq.size():
+		return
+	for c in entities.get_children():
+		c.queue_free()
+	for c in level.get_children():
+		c.queue_free()
+	for c in viewport.get_children():
+		if c is Area3D:  # 清残留弹道(Projectile); 固定子树(Level/Entities/Player/环境)不受影响
+			c.queue_free()
+	await get_tree().physics_frame
+
+	map_index = int(seq[_campaign_cursor])
+	var spawn: Vector3 = level.build(map_index, entities)
+	player.global_position = spawn
+	player.velocity = Vector3.ZERO
+	# 跨关保留策略(拍板B2): 武器/升级/备弹/生命原样保留, 弹匣自动补满
+	for i in player.weapons.size():
+		player.weapons[i]["ammoClip"] = int(player.weapons[i]["clipSize"])
+	player.ammo_changed.emit(player.ammo_clip, player.ammo_reserve)
+
+	hud.dismiss_end()
+	hud.setup_minimap(level, player, entities)
+	_connect_entities()
+	_setup_hints()
+	game_over = false
+	state = "briefing"
+	_start_msec = 0  # 待 dismiss_briefing 重置并做本关统计快照
+	var briefings: Array = GameData.narrative_cfg.get("briefings", [])
+	var briefing: Dictionary = briefings[map_index] if map_index < briefings.size() else {}
+	hud.show_briefing(briefing)
+	get_tree().paused = true
+	Input.mouse_mode = Input.MOUSE_MODE_VISIBLE
 
 
 func _on_defeat() -> void:
@@ -238,8 +313,16 @@ func _on_defeat() -> void:
 
 func _stats_text() -> String:
 	var secs := int((Time.get_ticks_msec() - _start_msec) / 1000.0) if _start_msec > 0 else 0
+	# B线·每关独立统计(关卡开始时快照的增量); 命中率=命中数/击发数(霰弹一发=一次)
+	var kills := _kills - int(_level_start["kills"])
+	var picks := _pickups_taken - int(_level_start["pickups"])
+	var acc := "-"
+	var shots: int = player.shots_fired - int(_level_start["shots"])
+	if shots > 0:
+		var hits: int = player.hits_landed - int(_level_start["hits"])
+		acc = "%d%%" % roundi(float(hits) / float(shots) * 100.0)
 	@warning_ignore("integer_division")
-	return "击杀 %d · 拾取 %d · 用时 %02d:%02d" % [_kills, _pickups_taken, secs / 60, secs % 60]
+	return "击杀 %d · 命中率 %s · 拾取 %d · 用时 %02d:%02d" % [kills, acc, picks, secs / 60, secs % 60]
 
 
 func _restart() -> void:

@@ -8,6 +8,7 @@ var damage := 1
 var speed := 30.0
 var max_range := 20.0
 var direction := Vector3.FORWARD
+var shooter: Node  # B线: 发射者(玩家弹道命中敌人时回报 hits_landed; 敌方不设)
 
 var spore_texture: Texture2D    # AE-219 孢子贴图（缺失则沿用球形弹表现）
 var spore_pixel_size := 0.015
@@ -39,6 +40,8 @@ func _on_body_entered(body: Node3D) -> void:
 	if body.is_in_group("enemies") and from_player:
 		if body.has_method("take_damage"):
 			body.take_damage(damage)
+		if shooter and is_instance_valid(shooter):
+			shooter.hits_landed += 1  # B线: 命中回报(命中率结算)
 		queue_free()
 	elif body.is_in_group("player") and not from_player:
 		if body.has_method("take_damage"):

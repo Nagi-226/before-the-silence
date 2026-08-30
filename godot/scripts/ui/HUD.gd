@@ -249,6 +249,14 @@ func update_coins(amount: int) -> void:
 
 ## 右上角小地图: Main 在关卡构建后注入数据引用
 func setup_minimap(level: Node, player: Node3D, entities: Node3D) -> void:
+	# B线转关会重复调用：先摘除旧实例——否则旧图半透明底板(α=0.55)下
+	# 第一关迷宫幽灵显现（2026-08-30 用户实机发现，守门方热修）。
+	# 须先 remove_child 再 queue_free：queue_free 延迟生效，同名节点仍在树中
+	# 会让新节点被自动改名（MiniMap2），破坏路径引用
+	var old_mm := get_node_or_null("MiniMap")
+	if old_mm != null:
+		remove_child(old_mm)
+		old_mm.queue_free()
 	var mm: Control = MiniMapScript.new()
 	mm.name = "MiniMap"
 	add_child(mm)
@@ -331,7 +339,9 @@ func set_enemy_name(text: String) -> void:
 		_enemy_name.text = text
 
 
-func show_end(victory: bool, story: String, stats_text: String) -> void:
+## 结算面板(victory=false 为阵亡)。has_next=true(B线关卡间结算)时提供
+## "进入下一关"入口, 由 Main 在 level_end 态转发 Enter 键触发转关
+func show_end(victory: bool, story: String, stats_text: String, has_next := false) -> void:
 	crosshair.visible = false
 	_enemy_name.visible = false
 	_toast.visible = false
@@ -340,5 +350,13 @@ func show_end(victory: bool, story: String, stats_text: String) -> void:
 	end_title.text = "任务完成" if victory else "你阵亡了"
 	_end_story.text = story
 	_end_stats.text = stats_text
-	end_hint.text = "按 Enter 重新挑战  ·  按 ESC 返回主菜单"
+	if has_next:
+		end_hint.text = "按 Enter 进入下一关 ▸  ·  按 R 重打本关  ·  按 ESC 返回主菜单"
+	else:
+		end_hint.text = "按 Enter 重新挑战  ·  按 ESC 返回主菜单"
 	Input.mouse_mode = Input.MOUSE_MODE_VISIBLE
+
+
+## B线·转关用: 隐藏结算面板(下一关简报即将接管屏幕)
+func dismiss_end() -> void:
+	end_panel.visible = false

@@ -56,7 +56,9 @@ func setup(level: Node, player: Node3D, entities: Node3D) -> void:
 	size = Vector2(_view) * SCALE
 	texture_filter = CanvasItem.TEXTURE_FILTER_NEAREST
 	_reposition()
-	get_tree().root.size_changed.connect(_reposition)
+	# B线转关会重复调用 setup: 防重复连接 resize 信号
+	if not get_tree().root.size_changed.is_connected(_reposition):
+		get_tree().root.size_changed.connect(_reposition)
 	_ready_flag = true
 
 
