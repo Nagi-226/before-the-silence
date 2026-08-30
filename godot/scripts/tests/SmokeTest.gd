@@ -34,10 +34,107 @@ var _p2b_climb_base_y := 0.0
 var _y_enemy: Node = null
 var _y_enemy_start_y := 0.0
 var _campaign_test_done := false
+var _layer_test_done := false
 
 
-## B线批1 · 转关流程静态配置断言: campaign 序列 / goals 旗配置与在场 /
-## map2 外部地图配置 / 室内 F 旗抑制(仅庭院旗)
+## A批3 · 层叠数据模型静态断言: 层几何(楼板+层墙)与配置一致 / 楼板顶面碰撞高度
+## 精确 / is_wall 分层查询 / 层墙不污染一楼墙格集(4197 不变式)
+func _test_layers_static() -> void:
+	var layer: Dictionary = {}
+	for l in GameData.level_ext_cfg.get("layers", []):
+		if int((l as Dictionary).get("map", -1)) == 0:
+			layer = l
+			break
+	_report(not layer.is_empty(), "layers 配置就绪(二层夹层试点)")
+	if layer.is_empty():
+		return
+	var rect: Dictionary = layer.get("rect", {})
+	var x0 := int(rect.get("x", 0))
+	var y0 := int(rect.get("y", 0))
+	var rw := int(rect.get("w", 0))
+	var rh := int(rect.get("h", 0))
+	var grid: Array = layer.get("grid", [])
+	var expect_walls := 0
+	for row in grid:
+		for ch in str(row):
+			if "XMSG".contains(ch):
+				expect_walls += 1
+	var expect_slabs: int = rw * rh - (layer.get("slabHoles", []) as Array).size()
+	var layers_nodes := get_tree().get_nodes_in_group("layers")
+	_report(layers_nodes.size() == expect_walls + expect_slabs,
+		"层几何: %d 体 (层墙 %d + 楼板 %d, 与配置一致)"
+		% [layers_nodes.size(), expect_walls, expect_slabs])
+
+	# 楼板顶面高度: 夹层内非洞格上方垂直射线 → baseHeight
+	var base_h := float(layer.get("baseHeight", 2.6))
+	var px := (float(x0) + 1.5) * WorldConst.CELL
+	var pz := (float(y0) + 1.5) * WorldConst.CELL
+	var space: PhysicsDirectSpaceState3D = _level.get_world_3d().direct_space_state
+	var ray := PhysicsRayQueryParameters3D.create(
+		Vector3(px, base_h + 3.0, pz), Vector3(px, base_h - 1.0, pz))
+	ray.exclude = [_player.get_rid()]
+	var hit := space.intersect_ray(ray)
+	var top_y := -99.0
+	if not hit.is_empty():
+		top_y = float(hit["position"].y)
+	_report(absf(top_y - base_h) < 0.05,
+		"二层楼板顶面高度: %.2fm (期望 %.2fm)" % [top_y, base_h])
+
+	# 分层墙查询: 同格一楼地板/二层北墙 + 二层室内空
+	_report(not _level.is_wall(x0 + 4, y0, 1) and _level.is_wall(x0 + 4, y0, 2),
+		"is_wall 分层查询: (%d,%d) 一楼可走 / 二层北墙" % [x0 + 4, y0])
+	_report(not _level.is_wall(x0 + 4, y0 + 4, 2),
+		"is_wall 分层查询: (%d,%d) 二层室内空" % [x0 + 4, y0 + 4])
+
+	# 一楼不变式: 层墙只进 _layer_cells, 一楼墙格集原样
+	_report(_level.wall_cells.size() == 4197,
+		"一楼墙格数不变: %d (层墙不污染 wall_cells)" % _level.wall_cells.size())
+
+
+## A批3 · 层间贯通实测(协程): 二层哨戒敌不隔层侦测一楼玩家 → 玩家实走坡道
+## 登顶二层(高差2.6m)。帧位251, 须于 flag 测试(~294)与 campaign_flow(310)前完成
+func _test_layer_climb() -> void:
+	# 二层敌自建(帧85 _setup_shoot 会清场 build 生成的全部敌人, 不可依赖)
+	var layer_enemy: Node = preload("res://scenes/entities/Enemy.tscn").instantiate()
+	layer_enemy.template_id = 1
+	layer_enemy.projectile_root = _main.get_node("Viewport")
+	_entities.add_child(layer_enemy)
+	layer_enemy.global_position = Vector3(325.0, 2.6, 57.0)  # 夹层哨戒位
+	layer_enemy.velocity = Vector3.ZERO
+	await get_tree().physics_frame
+	# 1) 隔层: 玩家移到二层敌正下方一楼 → 敌不应侦测(垂直差2.6m>阈值1.5m)
+	_player.global_position = Vector3(
+		float(layer_enemy.global_position.x), 0.65, float(layer_enemy.global_position.z))
+	_player.velocity = Vector3.ZERO
+	for i in 3:
+		await get_tree().physics_frame
+	_report(is_zero_approx(float(layer_enemy.velocity.x)) and is_zero_approx(float(layer_enemy.velocity.z)),
+		"二层哨戒敌不隔层侦测一楼玩家 (垂直差2.6m>阈值)")
+	# 后续登顶测试防干扰: 伤害清零并挪至夹层远角
+	layer_enemy.fire_damage = 0
+	layer_enemy.melee_damage = 0
+	layer_enemy.global_position = Vector3(331.0, 2.6, 53.0)
+	layer_enemy.velocity = Vector3.ZERO
+
+	# 2) 登顶: 玩家瞬移层间坡道底(西侧助跑位), 面向+X按住前进
+	var rise_base := 0.65
+	_player.global_position = Vector3(307.0, rise_base, 62.0)
+	_player.rotation.y = -PI / 2
+	_player.velocity = Vector3.ZERO
+	_key_down(KEY_W)
+	for i in 37:
+		await get_tree().physics_frame
+	_key_up(KEY_W)
+	var rise := float(_player.global_position.y) - rise_base
+	_report(rise > 1.8,
+		"玩家经坡道登顶二层夹层: 高差 %.2fm (层高2.6m, 一→二层贯通实证)" % rise)
+	_report(_player.global_position.x >= 313.5 and _player.global_position.x <= 332.0
+		and _player.global_position.z >= 52.0 and _player.global_position.z <= 66.0,
+		"玩家立于二层楼板范围内: (%.1f, %.1f)"
+		% [_player.global_position.x, _player.global_position.z])
+	_layer_test_done = true
+
+
 func _test_campaign_config() -> void:
 	var seq: Array = (GameData.level_ext_cfg.get("campaign", {}) as Dictionary).get("sequence", [])
 	_report(seq.size() == 3 and int(seq[0]) == 0 and int(seq[1]) == 2 and int(seq[2]) == 1,
@@ -137,6 +234,7 @@ func _physics_process(_delta: float) -> void:
 		15: _test_p2b_terrain()
 		16: _test_enemy_y_config()
 		17: _test_campaign_config()
+		18: _test_layers_static()
 		8: _test_initial_noop()
 		12: _setup_weapon_pickup()
 		25: _check_weapon_grant()
@@ -155,6 +253,7 @@ func _physics_process(_delta: float) -> void:
 		240: _enemy_y_check()
 		243: _enemy_y_high_check()
 		250: _enemy_y_floor_check()
+		251: _test_layer_climb()
 		310: _test_campaign_flow()
 		346: _finish()
 
@@ -1005,7 +1104,7 @@ func _check_flag() -> void:
 func _finish() -> void:
 	while not _noop_test_done or not _cycle_test_done or not _components_test_done \
 			or not _shotgun_test_done or not _health_test_done or not _death_test_done \
-			or not _flag_test_done or not _campaign_test_done:
+			or not _flag_test_done or not _campaign_test_done or not _layer_test_done:
 		await get_tree().physics_frame
 	print("[SMOKE] 结果: %s" % ("全部通过" if not _fail else "存在失败项"))
 	get_tree().quit(1 if _fail else 0)

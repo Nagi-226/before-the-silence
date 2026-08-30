@@ -31,6 +31,11 @@ var _courtyard_tint := Color(1.0, 1.0, 1.0)
 var _map_w := LevelData.WIDTH
 var _map_h := LevelData.HEIGHT
 var _outdoor := false  # 外部地图 outdoor=true: 无天花板(露天关卡)
+# A线·层叠数据模型: 楼层 -> 墙格集(Vector2i -> 符号)。层墙不进一楼 wall_cells
+# (一楼不变式原样), 供 is_wall 分层查询与小地图楼层化(批5)消费
+var _layer_cells := {}
+# 本图层区(天花板挖洞用): {rect: Rect2i, top: float(层顶高)}
+var _layer_rects: Array[Dictionary] = []
 
 
 func build(map_index: int, entity_root: Node3D) -> Vector3:
@@ -45,6 +50,8 @@ func build(map_index: int, entity_root: Node3D) -> Vector3:
 	_health_seen = 0
 	# B线转关复用本实例多次 build: 运行时状态必须整体重置
 	wall_cells.clear()
+	_layer_cells.clear()
+	_layer_rects.clear()
 	_courtyard_cells.clear()
 	_courtyard_rect = Rect2i()
 	_map_w = LevelData.WIDTH
@@ -110,6 +117,8 @@ func build(map_index: int, entity_root: Node3D) -> Vector3:
 	else:
 		spawn = _apply_ext_map(ext_map, entity_root, buckets)
 	_build_walls(buckets)
+	# 层几何先于天花板: 天花板需按层区 rect 挖洞抬升(层区净空 = base→层顶)
+	_build_layers(map_index, entity_root)
 	_build_floor_ceiling()
 	_build_collision(buckets)
 	_build_terrain(map_index)
@@ -198,8 +207,16 @@ func _apply_ext_map(cfg: Dictionary, entity_root: Node3D, buckets: Dictionary) -
 	return spawn
 
 
-func is_wall(x: int, y: int) -> bool:
-	return wall_cells.has(Vector2i(x, y))
+func is_wall(x: int, y: int, floor_level := 1) -> bool:
+	if floor_level <= 1:
+		return wall_cells.has(Vector2i(x, y))
+	var cells: Dictionary = _layer_cells.get(floor_level, {})
+	return cells.has(Vector2i(x, y))
+
+
+## A线·取指定楼层的墙格集(Vector2i -> 符号; 供小地图楼层化/测试消费)
+func get_layer_cells(floor_level: int) -> Dictionary:
+	return _layer_cells.get(floor_level, {})
 
 
 ## 庭院露天格集合（P2a，供测试与后续地形系统查询）
@@ -584,6 +601,21 @@ func _build_floor_ceiling() -> void:
 	# outdoor 地图(如 map2 室外街道)无天花板, 露天由 Main 场景环境提供
 	if _outdoor:
 		return
+	# A线批3: 层区天花板挖洞——层区 rect 上方原 2.6m 天花板会压二层玩家头顶,
+	# 抬升为层顶板(base+WALL_HEIGHT), 周边区域按 2.6 环绕四条拼合(首期单夹层)
+	if not _layer_rects.is_empty():
+		var lr: Dictionary = _layer_rects[0]
+		var r: Rect2i = lr["rect"]
+		var layer_top: float = float(lr["top"])
+		var r_x1 := r.position.x + r.size.x
+		var r_y1 := r.position.y + r.size.y
+		_ceiling_band(0, 0, _map_w, r.position.y, WorldConst.WALL_HEIGHT)  # 北条
+		_ceiling_band(0, r_y1, _map_w, _map_h - r_y1, WorldConst.WALL_HEIGHT)  # 南条
+		_ceiling_band(0, r.position.y, r.position.x, r.size.y, WorldConst.WALL_HEIGHT)  # 西条
+		_ceiling_band(r_x1, r.position.y, _map_w - r_x1, r.size.y, WorldConst.WALL_HEIGHT)  # 东条
+		_ceiling_band(r.position.x, r.position.y, r.size.x, r.size.y, layer_top,
+			"Ceiling")  # 层顶板(沿用 Ceiling 节点名, P2a 屋檐断言兼容)
+		return
 	var ceil_mat := StandardMaterial3D.new()
 	ceil_mat.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
 	ceil_mat.albedo_texture = load("res://assets/images/Ceiling.bmp")
@@ -598,6 +630,33 @@ func _build_floor_ceiling() -> void:
 	ceil_mi.position = Vector3(plane_size.x * 0.5, WorldConst.WALL_HEIGHT, plane_size.y * 0.5)
 	ceil_mi.rotation.x = PI  # 平面朝下
 	add_child(ceil_mi)
+
+
+## 天花板分片(格坐标区, 朝下平面)——层区挖洞后的环绕拼合用
+func _ceiling_band(x0: int, y0: int, w: int, h: int, y_height: float,
+		band_name: String = "") -> void:
+	if w <= 0 or h <= 0:
+		return
+	var size := Vector2(float(w) * WorldConst.CELL, float(h) * WorldConst.CELL)
+	var mat := StandardMaterial3D.new()
+	mat.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
+	mat.albedo_texture = load("res://assets/images/Ceiling.bmp")
+	mat.uv1_scale = Vector3(size.x / WorldConst.CELL, size.y / WorldConst.CELL, 1)
+	mat.backlight_enabled = false
+	var mesh := PlaneMesh.new()
+	mesh.size = size
+	mesh.material = mat
+	var mi := MeshInstance3D.new()
+	if band_name.is_empty():
+		band_name = "CeilingBand_%d_%d" % [x0, y0]
+	mi.name = band_name
+	mi.mesh = mesh
+	mi.position = Vector3(
+		(float(x0) + float(w) * 0.5) * WorldConst.CELL,
+		y_height,
+		(float(y0) + float(h) * 0.5) * WorldConst.CELL)
+	mi.rotation.x = PI  # 平面朝下
+	add_child(mi)
 
 	# P2a 庭院地面覆层: 仅覆盖庭院矩形，暗色冷调区分室内地砖;
 	# 抬升 1cm 防止与室内大地板共面闪烁; 露天无顶 —— 夜空由 Main 场景环境提供
@@ -670,19 +729,22 @@ func _build_terrain(map_index: int) -> void:
 				idx += 1
 
 
-## 实心平台: 矩形格区自地面抬升至 height, 顶面可行走/承碰撞
+## 实心平台: 矩形格区自所在层地板抬升至 height, 顶面可行走/承碰撞。
+## floor 字段(A线批3): y 基准 = (floor-1)×WALL_HEIGHT, 缺省 1(地面)向后兼容
 func _build_terrain_platform(idx: int, cfg: Dictionary) -> bool:
 	var x := int(cfg.get("x", 0))
 	var y := int(cfg.get("y", 0))
 	var w := maxi(1, int(cfg.get("w", 1)))
 	var h := maxi(1, int(cfg.get("h", 1)))
 	var height := float(cfg.get("height", 0.0))
-	if height <= 0.0 or height >= WorldConst.WALL_HEIGHT:
+	var base_y := float(maxi(1, int(cfg.get("floor", 1))) - 1) * WorldConst.WALL_HEIGHT
+	# 上限含等号: height==WALL_HEIGHT(2.6)合法——层间坡道顶恰为上层地板
+	if height <= 0.0 or height > WorldConst.WALL_HEIGHT:
 		push_warning("terrain.platform 高度无效 (%.2fm), 跳过" % height)
 		return false
 	var center := Vector3(
 		(float(x) + float(w) * 0.5) * WorldConst.CELL,
-		height * 0.5,
+		base_y + height * 0.5,
 		(float(y) + float(h) * 0.5) * WorldConst.CELL)
 	_make_terrain_body("Terrain_Platform_%d" % idx, Basis.IDENTITY, center,
 		Vector3(float(w) * WorldConst.CELL, height, float(h) * WorldConst.CELL),
@@ -690,9 +752,9 @@ func _build_terrain_platform(idx: int, cfg: Dictionary) -> bool:
 	return true
 
 
-## 斜坡: 沿 dir(N/S/E/W, 坡顶朝向)自地面抬升至 height 的坡板。
+## 斜坡: 沿 dir(N/S/E/W, 坡顶朝向)自所在层地板抬升至 height 的坡板。
 ## 水平跨距 = dir 轴向格数×CELL, 坡度须 <45°(CharacterBody3D 可行走上限);
-## 两端各延 5cm 咬合地面与平台消缝。
+## 两端各延 5cm 咬合地面与平台消缝。floor 字段(A线批3): y 基准 = (floor-1)×WALL_HEIGHT。
 func _build_terrain_ramp(idx: int, cfg: Dictionary) -> bool:
 	var x := int(cfg.get("x", 0))
 	var y := int(cfg.get("y", 0))
@@ -700,7 +762,9 @@ func _build_terrain_ramp(idx: int, cfg: Dictionary) -> bool:
 	var h := maxi(1, int(cfg.get("h", 1)))
 	var height := float(cfg.get("height", 0.0))
 	var dir := str(cfg.get("dir", "E"))
-	if height <= 0.0 or height >= WorldConst.WALL_HEIGHT:
+	var base_y := float(maxi(1, int(cfg.get("floor", 1))) - 1) * WorldConst.WALL_HEIGHT
+	# 上限含等号: height==WALL_HEIGHT(2.6)合法——一层坡道顶恰为二层地板
+	if height <= 0.0 or height > WorldConst.WALL_HEIGHT:
 		push_warning("terrain.ramp 高度无效 (%.2fm), 跳过" % height)
 		return false
 	var along_x := dir == "E" or dir == "W"
@@ -719,17 +783,17 @@ func _build_terrain_ramp(idx: int, cfg: Dictionary) -> bool:
 	var high := Vector3.ZERO
 	match dir:
 		"E":
-			low = Vector3(x0 - overlap, 0.0, cz)
-			high = Vector3(x0 + span + overlap, height, cz)
+			low = Vector3(x0 - overlap, base_y, cz)
+			high = Vector3(x0 + span + overlap, base_y + height, cz)
 		"W":
-			low = Vector3(x0 + span + overlap, 0.0, cz)
-			high = Vector3(x0 - overlap, height, cz)
+			low = Vector3(x0 + span + overlap, base_y, cz)
+			high = Vector3(x0 - overlap, base_y + height, cz)
 		"S":
-			low = Vector3(cx, 0.0, z0 - overlap)
-			high = Vector3(cx, height, z0 + span + overlap)
+			low = Vector3(cx, base_y, z0 - overlap)
+			high = Vector3(cx, base_y + height, z0 + span + overlap)
 		"N":
-			low = Vector3(cx, 0.0, z0 + span + overlap)
-			high = Vector3(cx, height, z0 - overlap)
+			low = Vector3(cx, base_y, z0 + span + overlap)
+			high = Vector3(cx, base_y + height, z0 - overlap)
 		_:
 			push_warning("terrain.ramp 未知 dir: " + dir)
 			return false
@@ -746,7 +810,7 @@ func _build_terrain_ramp(idx: int, cfg: Dictionary) -> bool:
 
 
 func _make_terrain_body(body_name: String, basis: Basis, center: Vector3,
-		size: Vector3, mat: Material) -> StaticBody3D:
+		size: Vector3, mat: Material, group := "terrain") -> StaticBody3D:
 	var body := StaticBody3D.new()
 	body.name = body_name
 	body.transform = Transform3D(basis, center)
@@ -761,9 +825,93 @@ func _make_terrain_body(body_name: String, basis: Basis, center: Vector3,
 	box.material = mat
 	mi.mesh = box
 	body.add_child(mi)
-	body.add_to_group("terrain")
+	body.add_to_group(group)
 	add_child(body)
 	return body
+
+
+## A线批3 · 层叠数据模型落地: 楼板(逐格板, slabHoles 挖洞) + 层墙(grid 逐格,
+## y 偏移 baseHeight, 沿用墙材质) + 层实体(enemies/pickups 按 baseHeight 抬升)。
+## 层墙登记 _layer_cells 不进一楼 wall_cells; 楼板/层墙碰撞挂 "layers" 组独立
+## body → 一楼不变式(墙碰撞体数==墙格数)原样。无 layers 配置零变化。
+const LAYER_SLAB_THICK := 0.3  # 楼板厚度(米), 顶面=baseHeight
+
+
+func _build_layers(map_index: int, entity_root: Node3D) -> void:
+	for entry in GameData.level_ext_cfg.get("layers", []):
+		var ed: Dictionary = entry
+		if int(ed.get("map", -1)) != map_index:
+			continue
+		var floor_n := maxi(2, int(ed.get("floor", 2)))
+		var base_h := float(ed.get("baseHeight", WorldConst.WALL_HEIGHT))
+		var rect: Dictionary = ed.get("rect", {})
+		var x0 := int(rect.get("x", 0))
+		var y0 := int(rect.get("y", 0))
+		var rw := maxi(1, int(rect.get("w", 1)))
+		var rh := maxi(1, int(rect.get("h", 1)))
+		var holes := {}
+		for hh in ed.get("slabHoles", []):
+			var hd: Dictionary = hh
+			holes[Vector2i(int(hd.get("x", -1)), int(hd.get("y", -1)))] = true
+		_layer_cells[floor_n] = {}
+		_layer_rects.append({
+			"rect": Rect2i(x0, y0, rw, rh),
+			"top": base_h + WorldConst.WALL_HEIGHT,
+		})
+
+		# 楼板: 逐格板(材质共享)
+		var slab_mat := _terrain_material(ed)
+		for y in range(y0, y0 + rh):
+			for x in range(x0, x0 + rw):
+				if holes.has(Vector2i(x, y)):
+					continue
+				var center := _cell_center(x, y) \
+					+ Vector3(0.0, base_h - LAYER_SLAB_THICK * 0.5, 0.0)
+				_make_terrain_body("Layer_Slab_F%d_%d_%d" % [floor_n, x, y],
+					Basis.IDENTITY, center,
+					Vector3(WorldConst.CELL, LAYER_SLAB_THICK, WorldConst.CELL),
+					slab_mat, "layers")
+
+		# 层墙: grid 逐格(相对 rect 原点; 行=符号 row), 材质按符号缓存
+		var wall_mats := {}
+		var grid: Array = ed.get("grid", [])
+		for gy in grid.size():
+			var row_str := str(grid[gy])
+			for gx in row_str.length():
+				var ch := row_str[gx]
+				if not WALL_TEXTURES.has(ch):
+					continue
+				if not wall_mats.has(ch):
+					var m := StandardMaterial3D.new()
+					m.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
+					m.albedo_texture = load(WALL_TEXTURES[ch])
+					wall_mats[ch] = m
+				var cx := x0 + gx
+				var cy := y0 + gy
+				var pos := _cell_center(cx, cy) \
+					+ Vector3(0.0, base_h + WorldConst.WALL_HEIGHT * 0.5, 0.0)
+				_make_terrain_body("Layer_Wall_F%d_%d_%d" % [floor_n, cx, cy],
+					Basis.IDENTITY, pos,
+					Vector3(WorldConst.CELL, WorldConst.WALL_HEIGHT, WorldConst.CELL),
+					wall_mats[ch], "layers")
+				_layer_cells[floor_n][Vector2i(cx, cy)] = ch
+
+		# 层实体: 敌人/拾取物按 baseHeight 抬升(敌人原点在脚底, 落板顶)
+		for e in ed.get("enemies", []):
+			var edd: Dictionary = e
+			var enemy: Node3D = EnemyScene.instantiate()
+			enemy.position = _cell_center(int(edd.get("x", 0)), int(edd.get("y", 0))) \
+				+ Vector3(0.0, base_h, 0.0)
+			enemy.template_id = int(edd.get("id", 0))
+			enemy.projectile_root = get_parent()
+			entity_root.add_child(enemy)
+		for p in ed.get("pickups", []):
+			var pd: Dictionary = p
+			var pickup: Node3D = PickupScene.instantiate()
+			pickup.position = _cell_center(int(pd.get("x", 0)), int(pd.get("y", 0))) \
+				+ Vector3(0.0, base_h, 0.0)
+			pickup.symbol = str(pd.get("symbol", "A"))
+			entity_root.add_child(pickup)
 
 
 func _terrain_material(cfg: Dictionary) -> StandardMaterial3D:
