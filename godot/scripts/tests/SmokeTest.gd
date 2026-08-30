@@ -34,6 +34,32 @@ var _p2b_climb_base_y := 0.0
 var _y_enemy: Node = null
 var _y_enemy_start_y := 0.0
 var _campaign_test_done := false
+var _hill_test_done := false
+
+
+## B批3 · 东北土丘登顶实走(协程): 等转关完成后, 玩家从坡道南侧实走登底台
+## (顶台接力段归用户实机验收)。帧位311, 等待型——不与 campaign_flow 抢玩家
+func _test_hill_climb() -> void:
+	while not _campaign_test_done:
+		await get_tree().physics_frame
+	_main.dismiss_briefing()  # 转关后为简报暂停态, 解除后玩家物理可跑
+	await get_tree().physics_frame
+	# 玩家原点=脚部(离地0, Player.tscn 胶囊中心偏移0.65/半高0.65), 平地 y=0
+	var rise_base := 0.0
+	# 坡1(地面→底台): col131-133×row17-19 dir N, 南低北高; 起点取坡南开阔地
+	_player.global_position = Vector3(265.0, rise_base, 46.0)
+	_player.rotation.y = 0.0  # 面向北(坡向)
+	_player.velocity = Vector3.ZERO
+	_key_down(KEY_W)
+	for i in 60:
+		await get_tree().physics_frame
+	_key_up(KEY_W)
+	var rise := float(_player.global_position.y) - rise_base
+	_report(rise > 1.0,
+		"玩家实走坡道登顶土丘底台: 高差 %.2fm (T2 阶梯地形可行走实证)" % rise)
+	_report(_player.global_position.z < 34.5 and _player.global_position.z > 6.0,
+		"玩家立于底台范围: z=%.1f" % _player.global_position.z)
+	_hill_test_done = true
 
 
 ## B线批1 · 转关流程静态配置断言: campaign 序列 / goals 旗配置与在场 /
@@ -138,6 +164,32 @@ func _test_campaign_flow() -> void:
 			actual_enemies += 1
 	_report(actual_enemies == expect_enemies,
 		"map2 敌人: %d 个 (期望 %d, 建筑内+街面分布)" % [actual_enemies, expect_enemies])
+	# B批3 · T2 土丘: 地形体与配置一致 / 巨宿主与旗在丘顶 / v 仅 1
+	var expect_terrain := 0
+	for t in GameData.level_ext_cfg.get("terrain", []):
+		var td: Dictionary = t
+		if int(td.get("map", -1)) == 2:
+			expect_terrain += 1
+	var terrain_nodes := get_tree().get_nodes_in_group("terrain")
+	_report(terrain_nodes.size() == expect_terrain,
+		"东北土丘+南侧坡地: 地形体 %d 个 (期望 %d, 与配置一致)"
+		% [terrain_nodes.size(), expect_terrain])
+	var hill_guard := false
+	for e in get_tree().get_nodes_in_group("enemies"):
+		if is_instance_valid(e) and int(e.template_id) == 2 \
+				and absf(float(e.global_position.y) - 2.6) < 0.1:
+			hill_guard = true
+	_report(hill_guard, "东北土丘顶巨型突变体宿主镇守在场 (高潮收束战)")
+	var hill_flag := false
+	for c in _entities.get_children():
+		if c.has_signal("reached") and float(c.global_position.y) > 2.5:
+			hill_flag = true
+	_report(hill_flag, "撤离信标置于丘顶 (y=%.1fm)" % 2.6)
+	var v_count := 0
+	for c in _entities.get_children():
+		if "symbol" in c and str(c.symbol) == "v":
+			v_count += 1
+	_report(v_count == 1, "map2 三阶组件 v 落丘顶且仅 1 个 (用户拍板)")
 	_report(_player.weapon_tier == tier_before and bool(_player.weapon_owned[1]) == smg_owned,
 		"跨关保留: 武器持有与升级组件等级原样保留 (tier=%d)" % _player.weapon_tier)
 	_report(_player.ammo_clip == int(_player.weapons[_player.weapon_index]["clipSize"]),
@@ -197,6 +249,7 @@ func _physics_process(_delta: float) -> void:
 		243: _enemy_y_high_check()
 		250: _enemy_y_floor_check()
 		310: _test_campaign_flow()
+		311: _test_hill_climb()
 		346: _finish()
 
 
@@ -1046,7 +1099,7 @@ func _check_flag() -> void:
 func _finish() -> void:
 	while not _noop_test_done or not _cycle_test_done or not _components_test_done \
 			or not _shotgun_test_done or not _health_test_done or not _death_test_done \
-			or not _flag_test_done or not _campaign_test_done:
+			or not _flag_test_done or not _campaign_test_done or not _hill_test_done:
 		await get_tree().physics_frame
 	print("[SMOKE] 结果: %s" % ("全部通过" if not _fail else "存在失败项"))
 	get_tree().quit(1 if _fail else 0)

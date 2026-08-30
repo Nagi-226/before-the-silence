@@ -176,7 +176,9 @@ func _apply_ext_map(cfg: Dictionary, entity_root: Node3D, buckets: Dictionary) -
 
 	var fl: Dictionary = cfg.get("flag", {})
 	var flag: Node3D = FlagScene.instantiate()
-	flag.position = _cell_center(int(fl.get("x", _map_w - 3)), int(fl.get("y", 2)))
+	# B线批3: flag 可带 y(米)——置于土丘顶等高处
+	flag.position = _cell_center(int(fl.get("x", _map_w - 3)), int(fl.get("y", 2))) \
+		+ Vector3(0.0, float(fl.get("y_m", 0.0)), 0.0)
 	flag.reached.connect(func(): goal_reached.emit())
 	entity_root.add_child(flag)
 
@@ -252,7 +254,9 @@ func _apply_ext_map(cfg: Dictionary, entity_root: Node3D, buckets: Dictionary) -
 	for e in cfg.get("enemies", []):
 		var ed: Dictionary = e
 		var enemy: Node3D = EnemyScene.instantiate()
-		enemy.position = _cell_center(int(ed.get("x", 0)), int(ed.get("y", 0)))
+		# B线批3: y_m(米)抬升——镇守敌置于土丘顶等高处
+		enemy.position = _cell_center(int(ed.get("x", 0)), int(ed.get("y", 0))) \
+			+ Vector3(0.0, float(ed.get("y_m", 0.0)), 0.0)
 		enemy.template_id = int(ed.get("id", 0))
 		enemy.projectile_root = get_parent()
 		entity_root.add_child(enemy)
@@ -260,7 +264,8 @@ func _apply_ext_map(cfg: Dictionary, entity_root: Node3D, buckets: Dictionary) -
 	for p in cfg.get("pickups", []):
 		var pd: Dictionary = p
 		var pickup: Node3D = PickupScene.instantiate()
-		pickup.position = _cell_center(int(pd.get("x", 0)), int(pd.get("y", 0)))
+		pickup.position = _cell_center(int(pd.get("x", 0)), int(pd.get("y", 0))) \
+			+ Vector3(0.0, float(pd.get("y_m", 0.0)), 0.0)
 		pickup.symbol = str(pd.get("symbol", "A"))
 		entity_root.add_child(pickup)
 
@@ -739,6 +744,13 @@ func _build_terrain(map_index: int) -> void:
 				idx += 1
 
 
+## 地形 y 基准: base(绝对米, B线批3阶梯土丘用)优先, 否则 floor((floor-1)×WALL_HEIGHT), 缺省地面 0
+func _terrain_base_y(cfg: Dictionary) -> float:
+	if cfg.has("base"):
+		return maxf(float(cfg.get("base", 0.0)), 0.0)
+	return float(maxi(1, int(cfg.get("floor", 1))) - 1) * WorldConst.WALL_HEIGHT
+
+
 ## 实心平台: 矩形格区自地面抬升至 height, 顶面可行走/承碰撞
 func _build_terrain_platform(idx: int, cfg: Dictionary) -> bool:
 	var x := int(cfg.get("x", 0))
@@ -746,12 +758,14 @@ func _build_terrain_platform(idx: int, cfg: Dictionary) -> bool:
 	var w := maxi(1, int(cfg.get("w", 1)))
 	var h := maxi(1, int(cfg.get("h", 1)))
 	var height := float(cfg.get("height", 0.0))
-	if height <= 0.0 or height >= WorldConst.WALL_HEIGHT:
+	# B线批3: base(绝对米)优先/floor((floor-1)×WALL_HEIGHT)次之/缺省地面0——分层地形与阶梯土丘通用
+	var base_y := _terrain_base_y(cfg)
+	if height <= 0.0 or height > WorldConst.WALL_HEIGHT:
 		push_warning("terrain.platform 高度无效 (%.2fm), 跳过" % height)
 		return false
 	var center := Vector3(
 		(float(x) + float(w) * 0.5) * WorldConst.CELL,
-		height * 0.5,
+		base_y + height * 0.5,
 		(float(y) + float(h) * 0.5) * WorldConst.CELL)
 	_make_terrain_body("Terrain_Platform_%d" % idx, Basis.IDENTITY, center,
 		Vector3(float(w) * WorldConst.CELL, height, float(h) * WorldConst.CELL),
@@ -759,9 +773,9 @@ func _build_terrain_platform(idx: int, cfg: Dictionary) -> bool:
 	return true
 
 
-## 斜坡: 沿 dir(N/S/E/W, 坡顶朝向)自地面抬升至 height 的坡板。
+## 斜坡: 沿 dir(N/S/E/W, 坡顶朝向)自所在基面抬升至 height 的坡板。
 ## 水平跨距 = dir 轴向格数×CELL, 坡度须 <45°(CharacterBody3D 可行走上限);
-## 两端各延 5cm 咬合地面与平台消缝。
+## 两端各延 5cm 咬合地面与平台消缝。base/floor 字段同 platform。
 func _build_terrain_ramp(idx: int, cfg: Dictionary) -> bool:
 	var x := int(cfg.get("x", 0))
 	var y := int(cfg.get("y", 0))
@@ -769,7 +783,8 @@ func _build_terrain_ramp(idx: int, cfg: Dictionary) -> bool:
 	var h := maxi(1, int(cfg.get("h", 1)))
 	var height := float(cfg.get("height", 0.0))
 	var dir := str(cfg.get("dir", "E"))
-	if height <= 0.0 or height >= WorldConst.WALL_HEIGHT:
+	var base_y := _terrain_base_y(cfg)
+	if height <= 0.0 or height > WorldConst.WALL_HEIGHT:
 		push_warning("terrain.ramp 高度无效 (%.2fm), 跳过" % height)
 		return false
 	var along_x := dir == "E" or dir == "W"
@@ -788,17 +803,17 @@ func _build_terrain_ramp(idx: int, cfg: Dictionary) -> bool:
 	var high := Vector3.ZERO
 	match dir:
 		"E":
-			low = Vector3(x0 - overlap, 0.0, cz)
-			high = Vector3(x0 + span + overlap, height, cz)
+			low = Vector3(x0 - overlap, base_y, cz)
+			high = Vector3(x0 + span + overlap, base_y + height, cz)
 		"W":
-			low = Vector3(x0 + span + overlap, 0.0, cz)
-			high = Vector3(x0 - overlap, height, cz)
+			low = Vector3(x0 + span + overlap, base_y, cz)
+			high = Vector3(x0 - overlap, base_y + height, cz)
 		"S":
-			low = Vector3(cx, 0.0, z0 - overlap)
-			high = Vector3(cx, height, z0 + span + overlap)
+			low = Vector3(cx, base_y, z0 - overlap)
+			high = Vector3(cx, base_y + height, z0 + span + overlap)
 		"N":
-			low = Vector3(cx, 0.0, z0 + span + overlap)
-			high = Vector3(cx, height, z0 - overlap)
+			low = Vector3(cx, base_y, z0 + span + overlap)
+			high = Vector3(cx, base_y + height, z0 - overlap)
 		_:
 			push_warning("terrain.ramp 未知 dir: " + dir)
 			return false
