@@ -122,6 +122,7 @@ func build(map_index: int, entity_root: Node3D) -> Vector3:
 	_build_floor_ceiling()
 	_build_collision(buckets)
 	_build_terrain(map_index)
+	_build_stairs(map_index)
 	_build_facade(map_index)
 	_build_wall_decals(map_index)
 	_spawn_props(map_index)
@@ -601,29 +602,42 @@ func _build_floor_ceiling() -> void:
 	# outdoor 地图(如 map2 室外街道)无天花板, 露天由 Main 场景环境提供
 	if _outdoor:
 		return
-	# A线批3/批4: 层区天花板挖洞——2.6 平面挖掉最外层区; 仅最高层生成顶板
-	# (退台露出的下层区上方露天=退台露台, 如二层南侧); 层区玩家净空 = base→层顶
+	# A线批3/批4r: 层区天花板——2.6 平面挖掉最外层区; 逐层生成暴露区顶板
+	# (层 i 的 rect 减上层 rect, 该层顶面高度——修复中间层暴露区全露天 bug);
+	# 最高层整块顶板; 露台/楼梯井露天由上层 slabHoles 板洞机制天然处理
 	if not _layer_rects.is_empty():
-		var outer: Rect2i = _layer_rects[0]["rect"]
-		var top_lr: Dictionary = _layer_rects[0]
-		for lrd in _layer_rects:
+		var sorted_layers: Array = _layer_rects.duplicate()
+		sorted_layers.sort_custom(func(a, b): return int(a["floor"]) < int(b["floor"]))
+		var outer: Rect2i = sorted_layers[0]["rect"]
+		for lrd in sorted_layers:
 			var rr: Rect2i = lrd["rect"]
 			if rr.get_area() > outer.get_area():
 				outer = rr
-			if int(lrd["floor"]) > int(top_lr["floor"]):
-				top_lr = lrd
-		var r: Rect2i = top_lr["rect"]
-		var layer_top: float = float(top_lr["top"])
-		var r_x1 := r.position.x + r.size.x
-		var r_y1 := r.position.y + r.size.y
+		var o_x1 := outer.position.x + outer.size.x
+		var o_y1 := outer.position.y + outer.size.y
 		_ceiling_band(0, 0, _map_w, outer.position.y, WorldConst.WALL_HEIGHT)  # 北条
-		_ceiling_band(0, outer.position.y + outer.size.y, _map_w,
-			_map_h - outer.position.y - outer.size.y, WorldConst.WALL_HEIGHT)  # 南条
+		_ceiling_band(0, o_y1, _map_w, _map_h - o_y1, WorldConst.WALL_HEIGHT)  # 南条
 		_ceiling_band(0, outer.position.y, outer.position.x, outer.size.y, WorldConst.WALL_HEIGHT)  # 西条
-		_ceiling_band(outer.position.x + outer.size.x, outer.position.y,
-			_map_w - outer.position.x - outer.size.x, outer.size.y, WorldConst.WALL_HEIGHT)  # 东条
-		_ceiling_band(r.position.x, r.position.y, r.size.x, r.size.y, layer_top,
-			"Ceiling")  # 最高层层顶板(沿用 Ceiling 节点名, P2a 屋檐断言兼容)
+		_ceiling_band(o_x1, outer.position.y, _map_w - o_x1, outer.size.y, WorldConst.WALL_HEIGHT)  # 东条
+		for i in sorted_layers.size():
+			var cur: Dictionary = sorted_layers[i]
+			var cur_rect: Rect2i = cur["rect"]
+			var cur_top: float = float(cur["top"])
+			if i + 1 >= sorted_layers.size():
+				# 最高层: 整 rect 一块顶板(沿用 Ceiling 节点名, P2a 屋檐断言兼容)
+				_ceiling_band(cur_rect.position.x, cur_rect.position.y,
+					cur_rect.size.x, cur_rect.size.y, cur_top, "Ceiling")
+				continue
+			# 中间层暴露区: 本层 rect 内非周界墙位且未被上层覆盖的格 → 逐格板 @ 本层顶面
+			var upper: Rect2i = sorted_layers[i + 1]["rect"]
+			for cy in range(cur_rect.position.y, cur_rect.position.y + cur_rect.size.y):
+				for cxx in range(cur_rect.position.x, cur_rect.position.x + cur_rect.size.x):
+					var cell := Vector2i(cxx, cy)
+					var on_ring := cxx == cur_rect.position.x or cxx == cur_rect.position.x + cur_rect.size.x - 1 \
+						or cy == cur_rect.position.y or cy == cur_rect.position.y + cur_rect.size.y - 1
+					if on_ring or upper.has_point(cell):
+						continue
+					_ceiling_band(cxx, cy, 1, 1, cur_top)
 		return
 	var ceil_mat := StandardMaterial3D.new()
 	ceil_mat.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
@@ -738,6 +752,122 @@ func _build_terrain(map_index: int) -> void:
 				idx += 1
 
 
+## 地形/楼梯 y 基准: base(绝对米, 阶梯地形任意高度起步用)优先,
+## 否则 floor((floor-1)×WALL_HEIGHT), 缺省地面 0
+func _terrain_base_y(cfg: Dictionary) -> float:
+	if cfg.has("base"):
+		return maxf(float(cfg.get("base", 0.0)), 0.0)
+	return float(maxi(1, int(cfg.get("floor", 1))) - 1) * WorldConst.WALL_HEIGHT
+
+
+## A批4r · 正经楼梯: 逐级 BoxMesh 台阶(纯视觉, 8级/层, 级高≤0.325m) +
+## 平滑斜坡碰撞(楼梯外观+坡道行走——业界常规, 纯踏步碰撞会卡脚/滑步)。
+## 底/顶落板等高衔接(碰撞几何同 ramp); 楼梯井穿板洞由 layers.slabHoles 配置
+func _build_stairs(map_index: int) -> void:
+	var idx := 0
+	for entry in GameData.level_ext_cfg.get("stairs", []):
+		var ed: Dictionary = entry
+		if int(ed.get("map", -1)) != map_index:
+			continue
+		if _build_stair(idx, ed):
+			idx += 1
+
+
+func _build_stair(idx: int, cfg: Dictionary) -> bool:
+	var x := int(cfg.get("x", 0))
+	var y := int(cfg.get("y", 0))
+	var w := maxi(1, int(cfg.get("w", 2)))   # 沿升向格数(水平长度)
+	var h := maxi(1, int(cfg.get("h", 1)))   # 楼梯宽格数
+	var dir := str(cfg.get("dir", "E"))
+	var height := float(cfg.get("height", 0.0))
+	var base_y := _terrain_base_y(cfg)
+	var steps := maxi(2, int(cfg.get("steps", 8)))
+	if height <= 0.0 or height > WorldConst.WALL_HEIGHT:
+		push_warning("stairs 高度无效 (%.2fm), 跳过" % height)
+		return false
+	var along_x := dir == "E" or dir == "W"
+	var span := float(w if along_x else h) * WorldConst.CELL
+	var width := float(h if along_x else w) * WorldConst.CELL
+	var slope_deg := rad_to_deg(atan2(height, span))
+	if slope_deg >= 45.0:
+		push_warning("stairs 坡度 %.1f° 超 45° 不可行走, 跳过" % slope_deg)
+		return false
+	if height / float(steps) > 0.325:
+		push_warning("stairs 级高 %.3fm 超 0.325m 上限, 跳过" % (height / float(steps)))
+		return false
+	var x0 := float(x) * WorldConst.CELL
+	var z0 := float(y) * WorldConst.CELL
+	var cx := x0 + float(w) * WorldConst.CELL * 0.5
+	var cz := z0 + float(h) * WorldConst.CELL * 0.5
+	var overlap := 0.05
+	var low := Vector3.ZERO
+	var high := Vector3.ZERO
+	match dir:
+		"E":
+			low = Vector3(x0 - overlap, base_y, cz)
+			high = Vector3(x0 + span + overlap, base_y + height, cz)
+		"W":
+			low = Vector3(x0 + span + overlap, base_y, cz)
+			high = Vector3(x0 - overlap, base_y + height, cz)
+		"S":
+			low = Vector3(cx, base_y, z0 - overlap)
+			high = Vector3(cx, base_y + height, z0 + span + overlap)
+		"N":
+			low = Vector3(cx, base_y, z0 + span + overlap)
+			high = Vector3(cx, base_y + height, z0 - overlap)
+		_:
+			push_warning("stairs 未知 dir: " + dir)
+			return false
+
+	# 碰撞: 平滑斜坡(无视觉 mesh, 视觉由台阶群承担)——楼梯外观+坡道行走
+	var fwd := (high - low).normalized()
+	var fwd_flat := Vector3(fwd.x, 0.0, fwd.z).normalized()
+	var side_w := fwd_flat.cross(Vector3.UP)
+	var up := side_w.cross(fwd)
+	var slope_len := (high - low).length()
+	var body := StaticBody3D.new()
+	body.name = "Stair_Ramp_%d" % idx
+	body.transform = Transform3D(Basis(fwd, up, side_w),
+		(low + high) * 0.5 - up * (TERRAIN_RAMP_THICK * 0.5))
+	var col := CollisionShape3D.new()
+	var shape := BoxShape3D.new()
+	shape.size = Vector3(slope_len, TERRAIN_RAMP_THICK, width)
+	col.shape = shape
+	body.add_child(col)
+	body.add_to_group("stairs")
+	add_child(body)
+
+	# 视觉: 逐级实心台阶盒(纯 Mesh, 不进碰撞)——第 i 级从基面堆叠到 (i+1)×级高
+	var tex_path := str(cfg.get("texture", ""))
+	var mat := StandardMaterial3D.new()
+	mat.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
+	mat.texture_filter = BaseMaterial3D.TEXTURE_FILTER_NEAREST
+	if ResourceLoader.exists(tex_path):
+		mat.albedo_texture = load(tex_path)
+	var step_h := height / float(steps)
+	var step_d := span / float(steps)
+	for i in steps:
+		var box := BoxMesh.new()
+		var mi := MeshInstance3D.new()
+		mi.name = "Stair_Step_%d_%d" % [idx, i]
+		box.material = mat
+		if along_x:
+			# E: 自西向东逐级升高; W: 自东向西
+			var s0 := x0 + (span * float(i) / float(steps) if dir == "E" \
+				else span * float(steps - i - 1) / float(steps))
+			box.size = Vector3(step_d, step_h * float(i + 1), width)
+			mi.position = Vector3(s0 + step_d * 0.5, base_y + step_h * float(i + 1) * 0.5, cz)
+		else:
+			# N: 自南向北逐级升高; S: 自北向南
+			var t0 := z0 + (span * float(i) / float(steps) if dir == "N" \
+				else span * float(steps - i - 1) / float(steps))
+			box.size = Vector3(width, step_h * float(i + 1), step_d)
+			mi.position = Vector3(cx, base_y + step_h * float(i + 1) * 0.5, t0 + step_d * 0.5)
+		mi.mesh = box
+		add_child(mi)
+	return true
+
+
 ## 实心平台: 矩形格区自所在层地板抬升至 height, 顶面可行走/承碰撞。
 ## floor 字段(A线批3): y 基准 = (floor-1)×WALL_HEIGHT, 缺省 1(地面)向后兼容
 func _build_terrain_platform(idx: int, cfg: Dictionary) -> bool:
@@ -746,7 +876,7 @@ func _build_terrain_platform(idx: int, cfg: Dictionary) -> bool:
 	var w := maxi(1, int(cfg.get("w", 1)))
 	var h := maxi(1, int(cfg.get("h", 1)))
 	var height := float(cfg.get("height", 0.0))
-	var base_y := float(maxi(1, int(cfg.get("floor", 1))) - 1) * WorldConst.WALL_HEIGHT
+	var base_y := _terrain_base_y(cfg)
 	# 上限含等号: height==WALL_HEIGHT(2.6)合法——层间坡道顶恰为上层地板
 	if height <= 0.0 or height > WorldConst.WALL_HEIGHT:
 		push_warning("terrain.platform 高度无效 (%.2fm), 跳过" % height)
@@ -771,7 +901,7 @@ func _build_terrain_ramp(idx: int, cfg: Dictionary) -> bool:
 	var h := maxi(1, int(cfg.get("h", 1)))
 	var height := float(cfg.get("height", 0.0))
 	var dir := str(cfg.get("dir", "E"))
-	var base_y := float(maxi(1, int(cfg.get("floor", 1))) - 1) * WorldConst.WALL_HEIGHT
+	var base_y := _terrain_base_y(cfg)
 	# 上限含等号: height==WALL_HEIGHT(2.6)合法——一层坡道顶恰为二层地板
 	if height <= 0.0 or height > WorldConst.WALL_HEIGHT:
 		push_warning("terrain.ramp 高度无效 (%.2fm), 跳过" % height)

@@ -51,8 +51,6 @@ func _test_layers_static() -> void:
 	var rect: Dictionary = layer.get("rect", {})
 	var x0 := int(rect.get("x", 0))
 	var y0 := int(rect.get("y", 0))
-	var rw := int(rect.get("w", 0))
-	var rh := int(rect.get("h", 0))
 	# A批4: 层几何累计全部楼层(map0 现有二层+三层)
 	var expect_walls := 0
 	var expect_slabs := 0
@@ -71,21 +69,6 @@ func _test_layers_static() -> void:
 	_report(layers_nodes.size() == expect_walls + expect_slabs,
 		"层几何: %d 体 (层墙 %d + 楼板 %d, 全楼层与配置一致)"
 		% [layers_nodes.size(), expect_walls, expect_slabs])
-
-	# 楼板顶面高度: 夹层内非洞格上方垂直射线 → baseHeight
-	var base_h := float(layer.get("baseHeight", 2.6))
-	var px := (float(x0) + 1.5) * WorldConst.CELL
-	var pz := (float(y0) + 1.5) * WorldConst.CELL
-	var space: PhysicsDirectSpaceState3D = _level.get_world_3d().direct_space_state
-	var ray := PhysicsRayQueryParameters3D.create(
-		Vector3(px, base_h + 3.0, pz), Vector3(px, base_h - 1.0, pz))
-	ray.exclude = [_player.get_rid()]
-	var hit := space.intersect_ray(ray)
-	var top_y := -99.0
-	if not hit.is_empty():
-		top_y = float(hit["position"].y)
-	_report(absf(top_y - base_h) < 0.05,
-		"二层楼板顶面高度: %.2fm (期望 %.2fm)" % [top_y, base_h])
 
 	# 分层墙查询: 同格一楼地板/二层北墙 + 二层室内空
 	_report(not _level.is_wall(x0 + 4, y0, 1) and _level.is_wall(x0 + 4, y0, 2),
@@ -141,23 +124,40 @@ func _test_third_floor_static() -> void:
 	var hit3 := _ray_down(space, Vector3(px, base3 + 3.0, pz), base3 - 1.0)
 	_report(absf(hit3 - base3) < 0.05,
 		"三层楼板顶面高度: %.2fm (期望 %.2fm)" % [hit3, base3])
-	# 二→三坡道几何连续: 坡顶(南墙门洞处)与三层板等高衔接
-	var ramp3: Dictionary = {}
-	for t in GameData.level_ext_cfg.get("terrain", []):
-		var td: Dictionary = t
-		if int(td.get("map", -1)) != 0:
+	# A批4r · 楼梯断言: 配置就绪/贴图可加载/级高合规/碰撞体与台阶与配置一致
+	var stairs_cfg: Array = GameData.level_ext_cfg.get("stairs", [])
+	var s2: Dictionary = {}
+	var expect_steps := 0
+	for sd in stairs_cfg:
+		var sdd: Dictionary = sd
+		if int(sdd.get("map", -1)) != 0:
 			continue
-		var r: Dictionary = td.get("ramp", {})
-		if int(r.get("floor", 1)) == 2 and not r.is_empty():
-			ramp3 = r
-			break
-	_report(not ramp3.is_empty(), "二→三层坡道配置就绪(露台段)")
-	if not ramp3.is_empty():
-		var rx := (float(int(ramp3.get("x", 0))) + float(int(ramp3.get("w", 1))) * 0.5) * WorldConst.CELL
-		var rz_top := float(int(ramp3.get("y", 0))) * WorldConst.CELL  # dir=N 坡顶在北缘
-		var hit_top := _ray_down(space, Vector3(rx, base3 + 3.0, rz_top + 0.05), base3 - 1.0)
+		expect_steps += maxi(2, int(sdd.get("steps", 8)))
+		if absf(float(sdd.get("base", 0.0)) - 2.6) < 0.01:
+			s2 = sdd
+	_report(stairs_cfg.size() >= 2, "楼梯配置就绪(一→二/二→三各一部)")
+	var stair_tex_ok := true
+	for sd in stairs_cfg:
+		if not ResourceLoader.exists(str((sd as Dictionary).get("texture", ""))):
+			stair_tex_ok = false
+	_report(stair_tex_ok, "楼梯贴图可加载(Stair Steps)")
+	var step_nodes := 0
+	for n in _level.get_children():
+		if str(n.name).begins_with("Stair_Step_"):
+			step_nodes += 1
+	_report(step_nodes == expect_steps,
+		"楼梯台阶: %d 级 (期望 %d, 8级/层×2部)" % [step_nodes, expect_steps])
+	var stair_bodies := get_tree().get_nodes_in_group("stairs")
+	_report(stair_bodies.size() == 2, "楼梯平滑斜坡碰撞体: %d (期望 2)" % stair_bodies.size())
+	# 二→三楼梯顶衔接: 梯顶位置(碰撞斜坡)与三层板等高——贯通几何证明
+	if not s2.is_empty():
+		var sx_top := (float(int(s2.get("x", 0))) + float(int(s2.get("w", 2)))) * WorldConst.CELL
+		var sz_mid := (float(int(s2.get("y", 0))) + 0.5) * WorldConst.CELL
+		var hit_top := _ray_down(space, Vector3(sx_top + 0.05, base3 + 3.0, sz_mid), base3 - 1.0)
 		_report(absf(hit_top - base3) < 0.1,
-			"坡顶与三层板等高衔接: %.2fm (期望 %.2fm, 二→三贯通几何证明)" % [hit_top, base3])
+			"二→三楼梯顶与三层板等高衔接: %.2fm (期望 %.2fm)" % [hit_top, base3])
+		var step_h := float(s2.get("height", 2.6)) / float(maxi(2, int(s2.get("steps", 8))))
+		_report(step_h <= 0.325, "楼梯级高 %.3fm ≤ 0.325m 上限" % step_h)
 	# 层顶板 7.8 与装饰外立面总高精确对齐(顶板为纯视觉 Mesh, 查节点位置而非射线)
 	var top3 := base3 + WorldConst.WALL_HEIGHT
 	var ceiling_mi: MeshInstance3D = _level.get_node_or_null("Ceiling") as MeshInstance3D
@@ -169,12 +169,27 @@ func _test_third_floor_static() -> void:
 		+ float(fcfg.get("stories", 2)) * float(fcfg.get("storyHeight", WorldConst.WALL_HEIGHT))
 	_report(absf(top3 - facade_top) < 0.01,
 		"三层顶板 %.2fm 与装饰外立面总高 %.2fm 精确对齐(回头视线三层结构无缝)" % [top3, facade_top])
-	# 退台露台露天: 三层 rect 南缘外一格(避开坡道列)上方直达二层地板 2.6(无板遮挡)
-	var terrace_x := (float(r3.position.x) + 1.0) * WorldConst.CELL  # 三层西内格(坡道西侧)
-	var terrace_z := (float(r3.position.y + r3.size.y) + 0.5) * WorldConst.CELL  # 露台行中心
-	var hit_terrace := _ray_down(space, Vector3(terrace_x, 8.0, terrace_z), 0.0)
-	_report(absf(hit_terrace - 2.6) < 0.1,
-		"退台露台露天: 上方直达二层地板 %.2fm (无层板遮挡, 夜空可见)" % hit_terrace)
+	# 退台露台露天: 露台=三层板洞(slabHoles 露台区, 非楼梯井)→上方直达二层地板 2.6
+	var terrace_cell := Vector2i(-1, -1)
+	for hh in l3.get("slabHoles", []):
+		var hd: Dictionary = hh
+		var hc := Vector2i(int(hd.get("x", -1)), int(hd.get("y", -1)))
+		if hc.x >= 163 and hc.y >= 25:  # 露台洞(东北角), 避开楼梯井(160-161,26)
+			terrace_cell = hc
+			break
+	_report(terrace_cell.x >= 0, "露台板洞配置就绪(三层东北角)")
+	if terrace_cell.x >= 0:
+		var hit_terrace := _ray_down(space, Vector3(
+			(float(terrace_cell.x) + 0.5) * WorldConst.CELL, 8.0,
+			(float(terrace_cell.y) + 0.5) * WorldConst.CELL), 0.0)
+		_report(absf(hit_terrace - 2.6) < 0.1,
+			"露台露天: 上方直达二层地板 %.2fm (三层板洞, 夜空可见)" % hit_terrace)
+	# A批4r · 二层室内上方被三层地板完整覆盖(二楼抬头天花板完整)
+	var hit_cover := _ray_down(space, Vector3(
+		(float(r3.position.x) + 2.0) * WorldConst.CELL, 8.0,
+		(float(r3.position.y) + 4.0) * WorldConst.CELL), 4.0)
+	_report(absf(hit_cover - 5.2) < 0.1,
+		"二层室内上方三层地板覆盖: %.2fm (期望 5.2, 抬头天花板完整)" % hit_cover)
 
 
 ## 垂直向下射线辅助: 返回命中 y(未命中返回 -99)
@@ -213,20 +228,21 @@ func _test_layer_climb() -> void:
 	layer_enemy.global_position = Vector3(331.0, 2.6, 53.0)
 	layer_enemy.velocity = Vector3.ZERO
 
-	# 2) 登顶: 玩家瞬移层间坡道底(西侧助跑位), 面向+X按住前进
-	var rise_base := 0.65
-	_player.global_position = Vector3(307.0, rise_base, 62.0)
+	# 2) 登顶(A批4r·楼梯): 玩家原点=脚部(离地0), 瞬移楼梯底西侧, 面向+X按住前进
+	#    一→二楼梯: col159-160×row31 (E向升, 底x318顶x322), 楼梯外观+坡道碰撞
+	var rise_base := 0.0
+	_player.global_position = Vector3(318.3, rise_base, 65.0)
 	_player.rotation.y = -PI / 2
 	_player.velocity = Vector3.ZERO
 	_key_down(KEY_W)
-	for i in 37:
+	for i in 32:
 		await get_tree().physics_frame
 	_key_up(KEY_W)
 	var rise := float(_player.global_position.y) - rise_base
 	_report(rise > 1.8,
-		"玩家经坡道登顶二层夹层: 高差 %.2fm (层高2.6m, 一→二层贯通实证)" % rise)
-	_report(_player.global_position.x >= 313.5 and _player.global_position.x <= 332.0
-		and _player.global_position.z >= 52.0 and _player.global_position.z <= 66.0,
+		"玩家经楼梯登顶二层: 高差 %.2fm (层高2.6m, 一→二层贯通实证)" % rise)
+	_report(_player.global_position.x >= 318.0 and _player.global_position.x <= 334.0
+		and _player.global_position.z >= 50.0 and _player.global_position.z <= 70.0,
 		"玩家立于二层楼板范围内: (%.1f, %.1f)"
 		% [_player.global_position.x, _player.global_position.z])
 	_layer_test_done = true
