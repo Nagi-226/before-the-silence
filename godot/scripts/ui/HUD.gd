@@ -39,6 +39,8 @@ var _weapon_default_scale := Vector2.ONE
 var _weapon_id := "pistol"
 var _weapon_anim_state := "idle"
 var _reload_label: Label
+# A批6 · 常驻目标提示行(简报后显示, 数据源 narrative.json gate 段, 零硬编码)
+var _objective: Label
 
 
 func _ready() -> void:
@@ -75,6 +77,15 @@ func _build_narrative_ui() -> void:
 	_toast.size = Vector2(640, 60)
 	_toast.visible = false
 	add_child(_toast)
+
+	# A批6: 常驻目标提示行(顶部居中 14px 小字, 空文本隐藏)
+	_objective = UIStyle.make_label("", 14, UIStyle.DIM)
+	_objective.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	_objective.set_anchors_preset(Control.PRESET_CENTER_TOP)
+	_objective.position = Vector2(-360, 8)
+	_objective.size = Vector2(720, 20)
+	_objective.visible = false
+	add_child(_objective)
 
 	# 结算面板: 叙事文本 + 统计（插在标题与提示之间）
 	_end_story = UIStyle.make_label("", 15, UIStyle.DIM)
@@ -337,6 +348,13 @@ func set_enemy_name(text: String) -> void:
 	_enemy_name.visible = text != ""
 	if _enemy_name.text != text:
 		_enemy_name.text = text
+
+
+## A批6: 常驻目标提示行(空文本隐藏); 供 Main 在简报 dismiss/合闸/转关时驱动
+func set_objective(text: String) -> void:
+	_objective.visible = text != ""
+	if _objective.text != text:
+		_objective.text = text
 
 
 ## 结算面板(victory=false 为阵亡)。has_next=true(B线关卡间结算)时提供

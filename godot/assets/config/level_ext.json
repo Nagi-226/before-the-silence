@@ -29,11 +29,26 @@
       "offset": 0.05
     },
     {
-      "_comment": "庭院东墙尽头大门(卷帘门): 第一关终点旗(179,32)正前方, 叙事=提灯穿过此门进入第二关城区街道(2026-08-30 用户验收指令)。E/W 面贴花 w 沿 y 延伸(当批起支持); 覆盖格 (191,31)/(191,32) 为庭院围墙环东段 S 墙, 已对照 wall_cells 口径。",
+      "_comment": "庭院东墙尽头大门(卷帘门, 状态门): 第一关终点旗(179,32)正前方, 叙事=提灯穿过此门进入第二关城区街道(2026-08-30 用户验收指令)。E/W 面贴花 w 沿 y 延伸(当批起支持); 覆盖格 (191,31)/(191,32) 为庭院围墙环东段 S 墙, 已对照 wall_cells 口径。A批6 合闸机制: id 注册进生成器贴花表, 合闸后贴图换 poweredTexture(卷帘升起/门洞漆黑/底部微光, 纯视觉切换不进碰撞/wall_cells)。",
       "map": 0,
+      "id": "gate_cargo",
       "texture": "res://assets/images/Gate Cargo.bmp",
+      "poweredTexture": "res://assets/images/Gate Cargo Open.bmp",
       "x": 191, "y": 31, "w": 2,
       "face": "W",
+      "offset": 0.05
+    },
+    {
+      "_comment": "A批6·配电箱(二层 C 房间北墙, 运行时墙格 (15,17), face=S 朝房间内): 合闸交互点——走进墙前 (15,18) 半径1.5m 且玩家楼层=2 即触发(零新按键), 一次性; 触发后贴图换 onTexture(红灯→绿灯/闸刀朝上)。floor=2 表示贴在层墙上(y 抬升 2.6m), 触发区同样按楼层过滤。纯贴花+触发器, 不进 wall_cells/碰撞。",
+      "map": 0,
+      "id": "breaker_2f",
+      "texture": "res://assets/images/Breaker Off.bmp",
+      "onTexture": "res://assets/images/Breaker On.bmp",
+      "x": 15, "y": 17, "w": 1,
+      "face": "S",
+      "floor": 2,
+      "interact": "breaker",
+      "radius": 1.5,
       "offset": 0.05
     }
   ],
@@ -81,9 +96,9 @@
       "texture": "res://assets/images/Stair Steps.bmp"
     },
     {
-      "_comment": "A批5·二→三楼梯(井道北段, 南向升, 与楼梯1双跑折返): base=2.6(二层板)升到5.2(三层板), 顶在 row22, 三层落点 (31-32,23), 顶接三层板洞(31-32,21-22) 见 floor3 slabHoles。",
+      "_comment": "A批5·二→三楼梯(井道北段, 与楼梯1双跑折返): base=2.6(二层板)升到5.2(三层板), 穿三层板洞(31-32,21-22) 见 floor3 slabHoles。A批6修复: dir 由 S 改 N——原 S 向低端在北侧 row21 紧贴二层井道北墙 row20, 玩家只能从侧面上坡(侧缘高出地板≈0.65m 超步高卡死, 用户实机发现); 改 N 后低端=row22 南缘, 自楼梯1落点 (31-32,23) 正面北行零阶差踏上, 顶端=row21 北缘, 三层落点 (31-32,20)(三层 grid row20 cols30-32 已开为地板)。",
       "map": 0,
-      "x": 31, "y": 21, "w": 2, "h": 2, "dir": "S", "height": 2.6, "base": 2.6, "steps": 8,
+      "x": 31, "y": 21, "w": 2, "h": 2, "dir": "N", "height": 2.6, "base": 2.6, "steps": 8,
       "texture": "res://assets/images/Stair Steps.bmp"
     }
   ],
@@ -128,10 +143,10 @@
       ],
       "slabHoles": [ { "x": 31, "y": 24 }, { "x": 32, "y": 24 }, { "x": 31, "y": 25 }, { "x": 32, "y": 25 } ],
       "enemies": [ { "x": 25, "y": 27, "id": 1 } ],
-      "pickups": [ { "x": 4, "y": 19, "symbol": "h" }, { "x": 17, "y": 27, "symbol": "C" } ]
+      "pickups": [ { "x": 4, "y": 19, "symbol": "h" }, { "x": 17, "y": 27, "symbol": "C" }, { "x": 5, "y": 27, "symbol": "W", "_comment": "A批6物资重排: 冲锋枪自 map0 一楼 (20,35) 上移二层 B 房间(落位=层地板格, 探针实证)" } ]
     },
     {
-      "_comment": "A批5·三层: 与二层同 footprint 无退台(用户'迷宫式+≥70%'最新口径覆盖旧退台拍板), 迷宫布局与二层不同, 可走316格=73.8%。slabHoles=二→三楼梯井。宝库实体(霰弹枪T/二阶U/巨宿主)归A批4.5。层顶板7.8m对齐外立面。",
+      "_comment": "A批5·三层: 与二层同 footprint 无退台(用户'迷宫式+≥70%'最新口径覆盖旧退台拍板), 迷宫布局与二层不同。A批6: row20(尾部段)cols30-32 开为地板(楼梯2 改 N 向后三层落点 (31-32,20), 保留 col29 井道西墙与 col33 塔边界墙) → 可走 316→319 格=74.5%; slabHoles=二→三楼梯井; 宝库实体落地(霰弹枪T/二阶U/霰弹s×2/巨宿主镇守 id2)。层顶板7.8m对齐外立面。",
       "map": 0,
       "floor": 3,
       "baseHeight": 5.2,
@@ -140,7 +155,7 @@
         "XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX",
         "X            X         X        X",
         "X            X         X        X",
-        "X                      X    XXXXX",
+        "X                      X    X   X",
         "X            X         X    X   X",
         "XXXXXXX XXXXXX              X   X",
         "X            X         X        X",
@@ -156,8 +171,13 @@
         { "x": 31, "y": 21 }, { "x": 32, "y": 21 },
         { "x": 31, "y": 22 }, { "x": 32, "y": 22 }
       ],
-      "enemies": [],
-      "pickups": []
+      "enemies": [ { "x": 9, "y": 25, "id": 2, "_comment": "A批6: 三层宝库镇守敌(巨型突变体宿主, 用户拍板'重要物资有看守份量')" } ],
+      "pickups": [
+        { "x": 4, "y": 27, "symbol": "T", "_comment": "A批6: 霰弹枪自 map0 一楼 (16,13) 上移三层 B 房间" },
+        { "x": 6, "y": 27, "symbol": "U", "_comment": "A批6: 二阶组件自 map0 一楼 (70,10) 上移三层(越级拒收机制不变, 需先拿一楼 u)" },
+        { "x": 5, "y": 28, "symbol": "s", "_comment": "A批6: 12号霰弹重排 3F×2 之一(新枪上手即有余弹)" },
+        { "x": 7, "y": 26, "symbol": "s", "_comment": "A批6: 12号霰弹重排 3F×2 之二" }
+      ]
     }
   ],
   "campaign": {

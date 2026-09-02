@@ -10,6 +10,8 @@ extends Node3D
 ##   同源的 LevelData 地图数据。庭院位于天花板平面之外 → 室内屋顶自然形成屋檐。
 
 signal goal_reached
+## A批6 · 合闸机制: 配电箱交互点触发时发出(Main 接 toast/HUD 目标行)
+signal breaker_activated
 
 const WALL_TEXTURES := {
 	"X": "res://assets/images/Wall Concrete.bmp",
@@ -36,6 +38,15 @@ var _outdoor := false  # 外部地图 outdoor=true: 无天花板(露天关卡)
 var _layer_cells := {}
 # 本图层区(天花板挖洞用): {rect: Rect2i, top: float(层顶高)}
 var _layer_rects: Array[Dictionary] = []
+# A批6 · 合闸机制运行时状态(build 时整体重置 = 转关/重打自动复位):
+# gate_powered=闸门供电标志; _gate_map=本图是否有配电箱交互点(有闸才闭锁);
+# _decals=贴花 id 注册表(状态切换用); _interactables=走进触发区列表
+var gate_powered := false
+var _gate_map := false
+var _decals := {}
+var _interactables: Array = []
+# A批6 · 小地图楼层化: 楼梯位置标记(楼层 -> 格坐标数组, 异色点用)
+var _stair_marks := {}
 
 
 func build(map_index: int, entity_root: Node3D) -> Vector3:
@@ -57,6 +68,12 @@ func build(map_index: int, entity_root: Node3D) -> Vector3:
 	_map_w = LevelData.WIDTH
 	_map_h = LevelData.HEIGHT
 	_outdoor = false
+	# A批6: 合闸机制状态重置(转关/重打 = 断电重来)
+	gate_powered = false
+	_decals.clear()
+	_interactables.clear()
+	_stair_marks.clear()
+	_gate_map = _map_has_breaker(map_index)
 	# B线: goals 命中且 suppressDataFlag → 抑制符号图 F 旗(改由配置旗接管)
 	var suppress_flag := _goal_suppress_data_flag(map_index)
 	# A批5: pickupOverrides.suppress — 符号图拾取生成跳过配置格(通用数组机制)
@@ -81,6 +98,7 @@ func build(map_index: int, entity_root: Node3D) -> Vector3:
 						continue
 					var flag: Node3D = FlagScene.instantiate()
 					flag.position = ground
+					flag.consume_on_reach = not _gate_map  # A批6: 有闸图触旗不消旗(闭锁)
 					flag.reached.connect(func(): goal_reached.emit())
 					entity_root.add_child(flag)
 				"0", "1", "2":
@@ -169,6 +187,7 @@ func _spawn_goal_flags(map_index: int, entity_root: Node3D) -> void:
 			var fd: Dictionary = f
 			var flag: Node3D = FlagScene.instantiate()
 			flag.position = _cell_center(int(fd.get("x", 0)), int(fd.get("y", 0)))
+			flag.consume_on_reach = not _gate_map  # A批6: 有闸图触旗不消旗(闭锁)
 			flag.reached.connect(func(): goal_reached.emit())
 			entity_root.add_child(flag)
 
@@ -194,6 +213,7 @@ func _apply_ext_map(cfg: Dictionary, entity_root: Node3D, buckets: Dictionary) -
 	var fl: Dictionary = cfg.get("flag", {})
 	var flag: Node3D = FlagScene.instantiate()
 	flag.position = _cell_center(int(fl.get("x", _map_w - 3)), int(fl.get("y", 2)))
+	flag.consume_on_reach = not _gate_map  # A批6: 有闸图触旗不消旗(闭锁)
 	flag.reached.connect(func(): goal_reached.emit())
 	entity_root.add_child(flag)
 
@@ -225,6 +245,62 @@ func is_wall(x: int, y: int, floor_level := 1) -> bool:
 ## A线·取指定楼层的墙格集(Vector2i -> 符号; 供小地图楼层化/测试消费)
 func get_layer_cells(floor_level: int) -> Dictionary:
 	return _layer_cells.get(floor_level, {})
+
+
+## A批6 · 小地图楼层化: 楼梯位置标记(该梯覆盖的每层各登记 footprint 格)
+func get_stair_marks(floor_level: int) -> Array:
+	return _stair_marks.get(floor_level, [])
+
+
+## A批6 · 合闸机制: 本图是否配置了配电箱交互点(wallDecals interact=breaker)
+func has_gate() -> bool:
+	return _gate_map
+
+
+func _map_has_breaker(map_index: int) -> bool:
+	for entry in GameData.level_ext_cfg.get("wallDecals", []):
+		var ed: Dictionary = entry
+		if int(ed.get("map", -1)) == map_index and str(ed.get("interact", "")) == "breaker":
+			return true
+	return false
+
+
+## A批6 · 贴花 id 注册表查询(状态切换/测试断言用)
+func get_decal(decal_id: String) -> MeshInstance3D:
+	return _decals.get(decal_id, null)
+
+
+## A批6 · 走进触发(wallDecals interact 扩展, 零新按键): Main._process 每帧传入
+## 玩家位置与楼层; 命中触发区(水平距离 ≤ radius 且楼层匹配)即一次性触发
+func tick_interactables(player_pos: Vector3, player_floor: int) -> void:
+	for it in _interactables:
+		if it["fired"] or int(it["floor"]) != player_floor:
+			continue
+		var d := Vector2(player_pos.x, player_pos.z).distance_to(it["pos"])
+		if d <= float(it["radius"]):
+			it["fired"] = true
+			_activate_breaker()
+
+
+## A批6 · 合闸: 供电标志置真 + 配电箱换"已合闸"贴图(onTexture) +
+## 所有带 poweredTexture 的贴花换开启态(如庭院货运大门) + 通知 Main
+func _activate_breaker() -> void:
+	if gate_powered:
+		return
+	gate_powered = true
+	for entry in GameData.level_ext_cfg.get("wallDecals", []):
+		var ed: Dictionary = entry
+		var swap_to := ""
+		if str(ed.get("interact", "")) == "breaker":
+			swap_to = str(ed.get("onTexture", ""))
+		elif ed.has("poweredTexture"):
+			swap_to = str(ed.get("poweredTexture", ""))
+		if swap_to.is_empty() or not ResourceLoader.exists(swap_to):
+			continue
+		var mi := get_decal(str(ed.get("id", "")))
+		if mi != null and mi.mesh is QuadMesh:
+			((mi.mesh as QuadMesh).material as StandardMaterial3D).albedo_texture = load(swap_to)
+	breaker_activated.emit()
 
 
 ## 庭院露天格集合（P2a，供测试与后续地形系统查询）
@@ -408,6 +484,9 @@ func _build_facade(map_index: int) -> void:
 ## 墙面贴花(布景): 把整面墙替换成专属贴图(如出生点货运大门)。与外立面同约定:
 ## 不登记 wall_cells、不进 buckets、不建碰撞 → 逻辑零侵入; 贴花面沿法线外推
 ## offset 防与原墙面共面闪烁。face 为法线朝向("N"=-Z "S"=+Z "E"=+X "W"=-X)。
+## A批6 扩展: floor=贴附楼层(≥2 为层墙, y 抬升 (floor-1)×WALL_HEIGHT);
+## id=注册进 _decals 供状态切换; interact="breaker"+radius+floor=走进触发区
+## (触发格=墙格沿 face 方向前一格, 一次性, 见 tick_interactables)。
 func _build_wall_decals(map_index: int) -> void:
 	var decals: Array = GameData.level_ext_cfg.get("wallDecals", [])
 	var idx := 0
@@ -427,6 +506,8 @@ func _build_wall_decals(map_index: int) -> void:
 		var height := WorldConst.WALL_HEIGHT
 		var offset := float(ed.get("offset", 0.05))
 		var face := str(ed.get("face", "N"))
+		var floor_n := maxi(1, int(ed.get("floor", 1)))  # A批6: 层墙贴花抬升
+		var base_y := float(floor_n - 1) * WorldConst.WALL_HEIGHT
 		# N/S 面墙沿 x 延伸 w 格；E/W 面墙沿 y 延伸 w 格（2026-08-30 庭院东墙大门，
 		# 转关叙事贴花。覆盖格口径与 SmokeTest 贴花墙格断言一致）
 		var cx: float
@@ -441,16 +522,16 @@ func _build_wall_decals(map_index: int) -> void:
 		var rot_y := 0.0
 		match face:
 			"N":
-				pos = Vector3(cx, height * 0.5, cz - WorldConst.CELL * 0.5 - offset)
+				pos = Vector3(cx, base_y + height * 0.5, cz - WorldConst.CELL * 0.5 - offset)
 				rot_y = PI
 			"S":
-				pos = Vector3(cx, height * 0.5, cz + WorldConst.CELL * 0.5 + offset)
+				pos = Vector3(cx, base_y + height * 0.5, cz + WorldConst.CELL * 0.5 + offset)
 				rot_y = 0.0
 			"E":
-				pos = Vector3(cx + WorldConst.CELL * 0.5 + offset, height * 0.5, cz)
+				pos = Vector3(cx + WorldConst.CELL * 0.5 + offset, base_y + height * 0.5, cz)
 				rot_y = PI / 2
 			"W":
-				pos = Vector3(cx - WorldConst.CELL * 0.5 - offset, height * 0.5, cz)
+				pos = Vector3(cx - WorldConst.CELL * 0.5 - offset, base_y + height * 0.5, cz)
 				rot_y = -PI / 2
 			_:
 				push_warning("墙面贴花未知 face: " + face)
@@ -469,6 +550,25 @@ func _build_wall_decals(map_index: int) -> void:
 		mi.position = pos
 		mi.add_to_group("wall_decals")
 		add_child(mi)
+		# A批6: id 注册(状态切换/测试定位) + 走进触发区登记(触发格=墙格沿 face 前一格)
+		var decal_id := str(ed.get("id", ""))
+		if not decal_id.is_empty():
+			_decals[decal_id] = mi
+		if str(ed.get("interact", "")) == "breaker":
+			var step := Vector2i(0, 0)
+			match face:
+				"N": step = Vector2i(0, -1)
+				"S": step = Vector2i(0, 1)
+				"E": step = Vector2i(1, 0)
+				"W": step = Vector2i(-1, 0)
+			var tcell := Vector2i(x0, y0) + step
+			_interactables.append({
+				"id": decal_id,
+				"pos": Vector2((tcell.x + 0.5) * WorldConst.CELL, (tcell.y + 0.5) * WorldConst.CELL),
+				"radius": float(ed.get("radius", 1.5)),
+				"floor": floor_n,
+				"fired": false,
+			})
 		idx += 1
 
 
@@ -933,6 +1033,15 @@ func _build_stair(idx: int, cfg: Dictionary) -> bool:
 			mi.position = Vector3(cx, base_y + step_h * float(i + 1) * 0.5, t0 + step_d * 0.5)
 		mi.mesh = box
 		add_child(mi)
+	# A批6: 小地图楼梯标记——footprint 格登记到该梯覆盖的每个楼层(底层与顶层)
+	var lo_floor := WorldConst.floor_at_y(base_y)
+	var hi_floor := WorldConst.floor_at_y(base_y + height)
+	for f in range(lo_floor, hi_floor + 1):
+		if not _stair_marks.has(f):
+			_stair_marks[f] = []
+		for sy in range(y, y + h):
+			for sx in range(x, x + w):
+				_stair_marks[f].append(Vector2i(sx, sy))
 	return true
 
 

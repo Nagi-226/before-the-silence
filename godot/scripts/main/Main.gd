@@ -41,6 +41,7 @@ func _ready() -> void:
 	_connect_player()
 	_connect_entities()
 	level.goal_reached.connect(_on_victory)
+	level.breaker_activated.connect(_on_breaker_activated)  # A批6 合闸机制
 
 	_enemy_names = GameData.narrative_cfg.get("enemy_names", [])
 	_setup_hints()
@@ -113,12 +114,16 @@ func _setup_hints() -> void:
 			continue
 		var gx := int(hd.get("x", 0))
 		var gy := int(hd.get("y", 0))
-		if level.is_wall(gx, gy):
+		# A批6: 可选 floor 字段——按对应楼层墙格校验(层区提示挂层墙格),
+		# 触发时同样要求玩家楼层匹配(跨层不串响)
+		var hfloor := maxi(1, int(hd.get("floor", 1)))
+		if level.is_wall(gx, gy, hfloor):
 			continue
 		_hints.append({
 			"pos": Vector3((gx + 0.5) * WorldConst.CELL, 0.0, (gy + 0.5) * WorldConst.CELL),
 			"radius": float(hd.get("radius", 4)) * WorldConst.CELL,
 			"text": str(hd.get("text", "")),
+			"floor": hfloor,
 			"shown": false,
 		})
 
@@ -159,6 +164,11 @@ func dismiss_briefing() -> void:
 		return
 	state = "play"
 	hud.dismiss_briefing()
+	# A批6: 常驻目标行——有闸图按供电状态给口径, 无闸图不显示(零硬编码)
+	if level.has_gate():
+		hud.set_objective(_gate_text("objectivePowered" if level.gate_powered else "objectiveLocked"))
+	else:
+		hud.set_objective("")
 	get_tree().paused = false
 	Input.mouse_mode = Input.MOUSE_MODE_CAPTURED
 	_start_msec = Time.get_ticks_msec()
@@ -177,6 +187,9 @@ func _process(_delta: float) -> void:
 		return
 	_update_enemy_name()
 	_update_hints()
+	# A批6: 走进触发(配电箱等 wallDecals 交互点, 零新按键)
+	level.tick_interactables(player.global_position,
+		WorldConst.floor_at_y(player.global_position.y))
 
 
 func _update_enemy_name() -> void:
@@ -196,8 +209,11 @@ func _update_enemy_name() -> void:
 
 func _update_hints() -> void:
 	var flat := Vector3(player.global_position.x, 0.0, player.global_position.z)
+	var pfloor := WorldConst.floor_at_y(player.global_position.y)
 	for h in _hints:
 		if h.shown:
+			continue
+		if int(h.get("floor", 1)) != pfloor:
 			continue
 		if flat.distance_to(h.pos) <= h.radius:
 			h.shown = true
@@ -241,8 +257,27 @@ func _on_enemy_died() -> void:
 	GameData.play_sfx("EnemyDie")
 
 
+## A批6 · 合闸机制: 配电箱触发 → toast + 目标行切换(文案全走 narrative.json gate 段)
+func _on_breaker_activated() -> void:
+	hud.show_toast(_gate_text("toastPowered"), 3.5)
+	hud.set_objective(_gate_text("objectivePowered"))
+
+
+## A批6: 取 narrative.gate 段文案(仅当其 map 命中当前关; 否则空串)
+func _gate_text(key: String) -> String:
+	var g: Dictionary = GameData.narrative_cfg.get("gate", {})
+	if g.is_empty() or int(g.get("map", -1)) != map_index:
+		return ""
+	return str(g.get(key, ""))
+
+
 func _on_victory() -> void:
 	if game_over:
+		return
+	# A批6 · 撤离闭锁: 有闸图未通电时触旗不判通关(旗不消, 通电后可再触)
+	if level.has_gate() and not level.gate_powered:
+		hud.show_toast(_gate_text("toastLocked"), 3.5)
+		GameData.play_sfx("UIMove")
 		return
 	game_over = true
 	get_tree().paused = true

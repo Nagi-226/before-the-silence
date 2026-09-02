@@ -11,6 +11,9 @@ extends Node
 ##       EDAA世界观化(简报提灯/2026当代/敌名三型/混凝土仓库墙/徽记菜单背景) /
 ##       菜单身份(徽记完整容下不出界/标题静默之前) / HUD弹药口径显示(9×19mm/12号霰弹) /
 ##       A批5 西北大厅塔楼(迷宫式二三层/楼梯间/卡顶修复/一层隔墙/急救包挪位/BFS连通性)
+##       A批6 楼梯2朝向修复(dir=N+三层落点开洞)/小地图楼层化(按y切层+楼梯标记) /
+##       合闸机制(配电箱走进触发/大门贴花切换/撤离闭锁) / 物资重排(W→2F, T+U+s×2→3F,
+##       map0 删 v, 巨宿主镇守) / HUD 目标行(narrative.gate 口径)
 ## 运行: godot --path godot --headless res://scenes/tests/SmokeTest.tscn
 
 var _frame := 0
@@ -36,6 +39,8 @@ var _y_enemy: Node = null
 var _y_enemy_start_y := 0.0
 var _campaign_test_done := false
 var _layer_test_done := false
+var _minimap_floor_test_done := false  # A批6
+var _gate_static_test_done := false    # A批6
 
 
 ## A批5 · 塔楼静态断言: 层几何(楼板+层墙)与配置一致 / 可走格从 grid+slabHoles 推导 /
@@ -76,8 +81,8 @@ func _test_layers_static() -> void:
 		"层几何: %d 体 (层墙 %d + 楼板 %d, 全楼层与配置一致)"
 		% [layers_nodes.size(), expect_walls, expect_slabs])
 
-	# 可走格: grid 空格数 − 板洞数。断言基准=设计目标(313/316, 探针BFS自楼梯
-	# 落点全连通实证 2026-08-30), 计算本身从配置推导
+	# 可走格: grid 空格数 − 板洞数。断言基准=设计目标(313/319, 探针BFS自楼梯
+	# 落点全连通实证; A批6 三层 row20 cols30-32 开洞 316→319), 计算本身从配置推导
 	for ld in [l2, l3]:
 		var spaces := 0
 		for row in ld.get("grid", []):
@@ -86,10 +91,33 @@ func _test_layers_static() -> void:
 					spaces += 1
 		var walk := spaces - (ld.get("slabHoles", []) as Array).size()
 		var fn := int(ld.get("floor", 0))
-		var expect_walk := 313 if fn == 2 else 316
+		var expect_walk := 313 if fn == 2 else 319
 		_report(walk == expect_walk,
 			"%d层可走格: %d (期望 %d = 一层大厅428格的 %.1f%%, ≥70%%)"
 			% [fn, walk, expect_walk, walk / 428.0 * 100.0])
+
+	# A批6 · 三层连通性 BFS: 楼梯2 改 N 向后落点=(31,20), 全部可走格自此可达
+	# (二层 BFS 已由 A批5 探针实证 313 全连通, 本批未动二层布局)
+	var holes3 := {}
+	for hh in l3.get("slabHoles", []):
+		var hd: Dictionary = hh
+		holes3[Vector2i(int(hd.get("x", -1)), int(hd.get("y", -1)))] = true
+	var walls3: Dictionary = _level.get_layer_cells(3)
+	var seen3 := {Vector2i(31, 20): true}
+	var queue3: Array[Vector2i] = [Vector2i(31, 20)]
+	while not queue3.is_empty():
+		var cur: Vector2i = queue3.pop_front()
+		for d in [Vector2i(1, 0), Vector2i(-1, 0), Vector2i(0, 1), Vector2i(0, -1)]:
+			var n: Vector2i = cur + d
+			if seen3.has(n) or walls3.has(n) or holes3.has(n):
+				continue
+			if n.x < 1 or n.x > 33 or n.y < 17 or n.y > 30:
+				continue
+			seen3[n] = true
+			queue3.append(n)
+	_report(seen3.size() == 319,
+		"三层连通性: (31,20) BFS 可达 %d 格 (期望 319 = 全部可走格, 楼梯2落点全连通)"
+		% seen3.size())
 
 	# 分层墙查询: (1,17) 塔西北角——一楼大厅地板 / 二层墙 / 三层墙
 	_report(not _level.is_wall(1, 17, 1) and _level.is_wall(1, 17, 2)
@@ -182,10 +210,37 @@ func _partition_new_cells() -> Array[Vector2i]:
 	return out
 
 
-## A批5 · 塔楼几何静态断言: 二/三层同 footprint(无退台) / 楼板 2.60/5.20 射线 /
+## A批6 · 层落位核验辅助: 存在符号匹配且位于指定格/指定层高的拾取物,
+## 且该格在对应楼层为可走地板(非层墙、非板洞)
+func _assert_layer_entity(symbol: String, x: int, y: int, base_h: float, label: String) -> void:
+	var f := int(base_h / WorldConst.WALL_HEIGHT) + 1
+	var cell := Vector2i(x, y)
+	var floor_ok: bool = not _level.is_wall(x, y, f)
+	for l in GameData.level_ext_cfg.get("layers", []):
+		var ld: Dictionary = l
+		if int(ld.get("map", -1)) != 0 or int(ld.get("floor", 0)) != f:
+			continue
+		for hh in ld.get("slabHoles", []):
+			var hd: Dictionary = hh
+			if Vector2i(int(hd.get("x", -1)), int(hd.get("y", -1))) == cell:
+				floor_ok = false
+	var found := false
+	for c in _entities.get_children():
+		if not ("symbol" in c) or c.symbol != symbol:
+			continue
+		var pc := Vector2i(int(c.global_position.x / WorldConst.CELL),
+			int(c.global_position.z / WorldConst.CELL))
+		if pc == cell and absf(float(c.global_position.y) - base_h) < 0.1:
+			found = true
+	_report(found and floor_ok,
+		"%s (落位=%s, 层地板格=%s)" % [label, "命中" if found else "缺失", "是" if floor_ok else "否"])
+
+
+## A批5/批6 · 塔楼几何静态断言: 二/三层同 footprint(无退台) / 楼板 2.60/5.20 射线 /
 ## 楼梯(2部×8级/级高0.325/贴图/梯顶与目标层板等高衔接/顶端外延0.15卡顶修复实证/
 ## 顶层台阶不凸出且位于梯顶端) / 顶板 7.80 对齐外立面 / 塔区2.6天花板已挖 /
-## 楼梯井头空。(两部楼梯三角度实走上行由 _test_layer_climb 帧251 覆盖)
+## 楼梯井头空 / A批6: 楼梯2 dir=N(低端 row22 南缘, 三层落点 (31-32,20)) +
+## 三层 row20 cols30-32 开洞。(两部楼梯三角度实走上行由 _test_layer_climb 帧251 覆盖)
 func _test_third_floor_static() -> void:
 	var l2: Dictionary = {}
 	var l3: Dictionary = {}
@@ -257,7 +312,7 @@ func _test_third_floor_static() -> void:
 		_report(step_h <= 0.325, "楼梯级高 %.3fm ≤ 0.325m 上限 (base=%.1f)"
 			% [step_h, float(sdd.get("base", 0.0))])
 	# 梯顶与目标层板等高衔接: 楼梯1(N向, 顶在北缘 z=48) 射线落于板洞内缘0.1m处
-	# 仍命中 2.6(顶端外延0.15m 搭上二层板面); 楼梯2(S向, 顶在南缘 z=46) 同理 5.2
+	# 仍命中 2.6(顶端外延0.15m 搭上二层板面); 楼梯2(A批6改N向, 顶在北缘 z=42) 同理 5.2
 	for i in map0_stairs.size():
 		var sdd: Dictionary = map0_stairs[i]
 		var sbase := float(sdd.get("base", 0.0))
@@ -343,6 +398,17 @@ func _test_third_floor_static() -> void:
 	_report(hit_head2 < 5.2 and hit_head2 > 3.0,
 		"楼梯2井道头空: 5.2→7.8 无阻挡 (命中 %.2fm)" % hit_head2)
 
+	# A批6 · 楼梯2 dir=N 配套: 三层 row20 cols30-32 开为地板(落点 (31-32,20)),
+	# 保留 col29 井道西墙与 col33 塔边界墙; 落点格有楼板(非板洞)承接
+	_report(_level.is_wall(29, 20, 3) and _level.is_wall(33, 20, 3),
+		"三层 row20: col29/col33 墙保留(井道西界/塔边界)")
+	_report(not _level.is_wall(30, 20, 3) and not _level.is_wall(31, 20, 3)
+		and not _level.is_wall(32, 20, 3),
+		"三层 row20: cols30-32 开为地板(楼梯2 落点走廊)")
+	var hit_land := _ray_down(space, Vector3(31.5 * WorldConst.CELL, 7.0, 20.5 * WorldConst.CELL), 4.0)
+	_report(absf(hit_land - base3) < 0.05,
+		"三层落点 (31,20) 楼板承接: %.2fm (期望 %.2fm)" % [hit_land, base3])
+
 
 ## 垂直向下射线辅助: 返回命中 y(未命中返回 -99)
 func _ray_down(space: PhysicsDirectSpaceState3D, from: Vector3, to_y: float) -> float:
@@ -355,8 +421,146 @@ func _ray_down(space: PhysicsDirectSpaceState3D, from: Vector3, to_y: float) -> 
 	return float(hit["position"].y)
 
 
-## A批5 · 层间贯通实测(协程): 二层哨戒敌不隔层侦测一楼玩家 → 两部楼梯×三角度
+## A批6 · 小地图楼层化: 楼层判定公式(与交互点同口径 WorldConst.floor_at_y) /
+## 逐层墙格集与生成器一致(1F=wall_cells 含 partitions; 2F/3F=层 grid 墙格) /
+## 非当前楼层墙体不画(每层纹理独立) / 实切换(玩家 y 0→2.6→5.2→复位) /
+## 楼梯标记登记。帧位20, 玩家位置用后复位(不干扰串行传送测试)
+func _test_minimap_floors() -> void:
+	var mm: Node = _main.get_node("HUD").get_node_or_null("MiniMap")
+	if mm == null:
+		_report(false, "小地图节点缺失(楼层化)")
+		_minimap_floor_test_done = true
+		return
+	_report(WorldConst.floor_at_y(0.0) == 1 and WorldConst.floor_at_y(2.6) == 2
+		and WorldConst.floor_at_y(5.2) == 3,
+		"楼层判定: y=0/2.6/5.2 → 1/2/3 层 (clamp 上限 3)")
+	# 墙格集一致(集合语义, 不依赖顺序)
+	var ok1: bool = mm.floor_cells(1).size() == _level.wall_cells.size()
+	for c in mm.floor_cells(1):
+		if not _level.wall_cells.has(c):
+			ok1 = false
+	_report(ok1, "小地图 1F 墙格集 == wall_cells(含 partitions): %d 格" % mm.floor_cells(1).size())
+	var l2c: Dictionary = _level.get_layer_cells(2)
+	var l3c: Dictionary = _level.get_layer_cells(3)
+	var ok2: bool = mm.floor_cells(2).size() == l2c.size()
+	for c in mm.floor_cells(2):
+		if not l2c.has(c):
+			ok2 = false
+	var ok3: bool = mm.floor_cells(3).size() == l3c.size()
+	for c in mm.floor_cells(3):
+		if not l3c.has(c):
+			ok3 = false
+	_report(ok2 and ok3, "小地图 2F/3F 墙格集 == 层 grid 墙格: %d/%d 格"
+		% [mm.floor_cells(2).size(), mm.floor_cells(3).size()])
+	# 非当前楼层墙体不画: 楼层纹理各自独立——partitions 北墙格 (31,21)
+	# (一层隔墙, 二层同位为地板) 仅应出现在 1F 纹理
+	var tex1: ImageTexture = mm.get("_floor_texes")[1]
+	var tex2: ImageTexture = mm.get("_floor_texes")[2]
+	var img1 := tex1.get_image()
+	var img2 := tex2.get_image()
+	_report(img1.get_pixelv(Vector2i(31, 21)).a > 0.5 and img2.get_pixelv(Vector2i(31, 21)).a < 0.5,
+		"非当前楼层墙体不画: partitions 墙格 (31,21) 仅在 1F 纹理")
+	# 楼梯标记: 楼梯1 footprint 登记到 1F/2F, 楼梯2 登记到 2F/3F
+	var sm: Dictionary = {}
+	for f in [1, 2, 3]:
+		sm[f] = {}
+		for c in _level.get_stair_marks(f):
+			sm[f][c] = true
+	_report(sm[1].has(Vector2i(31, 24)) and sm[2].has(Vector2i(31, 24))
+		and sm[2].has(Vector2i(31, 21)) and sm[3].has(Vector2i(31, 21)),
+		"楼梯标记: 梯1@(31-32,24-25)→1F/2F, 梯2@(31-32,21-22)→2F/3F")
+	# 实切换: 模拟玩家脚部 y 在 0/2.6/5.2, MiniMap 当前楼层 1/2/3 且纹理随切。
+	# 在庭院空旷点 (172,33) 进行——Pickup 触发半径 2.0m, 塔楼落位区做 y 切换会
+	# 误收 T/U/s(实证: 帧20 玩家在 (5,27) 上空 5.26m 把 2m 外的霰弹枪 T 吸走了)
+	var saved_pos: Vector3 = _player.global_position
+	var saved_vel: Vector3 = _player.velocity
+	var switch_ok := true
+	var fail_at := 0
+	for tc in [[0.65, 1], [2.66, 2], [5.26, 3]]:
+		# 轮询至切换生效(上限10帧, 与 Q 切换 flake 加固同法): 每帧钉住 y
+		# 防重力下落漂移; headless 下空闲帧与物理帧节奏不稳
+		var phase_ok := false
+		for i in 10:
+			_player.velocity = Vector3.ZERO
+			_player.global_position = Vector3(345.0, float(tc[0]), 67.0)
+			await get_tree().process_frame
+			if mm.current_floor() == int(tc[1]) \
+					and mm.get("_wall_tex") == (mm.get("_floor_texes") as Dictionary)[int(tc[1])]:
+				phase_ok = true
+				break
+		if not phase_ok:
+			switch_ok = false
+			fail_at = int(tc[1])
+	# 复位后楼层跟随实际位置(帧12 起玩家在二层 W 落点 → 回 2F);
+	# 需等 MiniMap._process 跑过(空闲帧)再读
+	_player.velocity = Vector3.ZERO
+	_player.global_position = saved_pos
+	_player.velocity = saved_vel
+	var back_ok := false
+	for i in 10:
+		await get_tree().process_frame
+		if mm.current_floor() == WorldConst.floor_at_y(saved_pos.y):
+			back_ok = true
+			break
+	_report(switch_ok and back_ok,
+		"小地图楼层实切换: y=0.65/2.66/5.26 → 1/2/3F 纹理随切, 复位跟随实际楼层 (fail_at=%d, back=%s)"
+		% [fail_at, str(back_ok)])
+	_minimap_floor_test_done = true
+
+
+## A批6 · 合闸机制静态断言: 贴图可加载 / 本图有闸未通电 / 触发区配置口径 /
+## 贴花 id 注册与初始贴图 / HUD 目标行(简报后常驻)=narrative.gate.objectiveLocked /
+## 楼层化区域提示已登记。帧位21(简报已于帧2 dismiss)
+func _test_gate_static() -> void:
+	_report(ResourceLoader.exists("res://assets/images/Breaker Off.bmp")
+		and ResourceLoader.exists("res://assets/images/Breaker On.bmp"),
+		"配电箱贴图可加载(Breaker Off/On)")
+	_report(ResourceLoader.exists("res://assets/images/Gate Cargo Open.bmp"),
+		"大门开启态贴图可加载(Gate Cargo Open)")
+	_report(_level.has_gate() and not _level.gate_powered,
+		"合闸机制: map0 有配电箱交互点, 初始未通电")
+	var its: Array = _level.get("_interactables")
+	_report(its.size() == 1 and int(its[0]["floor"]) == 2
+		and absf(float((its[0]["pos"] as Vector2).x) - 31.0) < 0.01
+		and absf(float((its[0]["pos"] as Vector2).y) - 37.0) < 0.01
+		and absf(float(its[0]["radius"]) - 1.5) < 0.01,
+		"配电箱触发区: (15,18) 半径1.5m 楼层=2 (走进触发, 零新按键)")
+	var br: MeshInstance3D = _level.get_decal("breaker_2f")
+	var gt: MeshInstance3D = _level.get_decal("gate_cargo")
+	_report(br != null and gt != null, "贴花 id 注册: breaker_2f / gate_cargo")
+	if br != null:
+		var btex := ((br.mesh as QuadMesh).material as StandardMaterial3D).albedo_texture
+		_report(btex != null and btex.resource_path.ends_with("Breaker Off.bmp"),
+			"配电箱初始贴图=Breaker Off(红灯)")
+		_report(absf(br.position.y - (WorldConst.WALL_HEIGHT + WorldConst.WALL_HEIGHT * 0.5)) < 0.05,
+			"配电箱贴花挂在二层墙高: y=%.2f (期望 3.9)" % br.position.y)
+	if gt != null:
+		var gtex := ((gt.mesh as QuadMesh).material as StandardMaterial3D).albedo_texture
+		_report(gtex != null and gtex.resource_path.ends_with("Gate Cargo.bmp"),
+			"大门初始贴图=Gate Cargo(关门)")
+	# HUD 目标行(数据源 narrative.gate, 零硬编码比对)
+	var gate_cfg: Dictionary = GameData.narrative_cfg.get("gate", {})
+	var hud: Node = _main.get_node("HUD")
+	var obj: Label = hud.get("_objective")
+	_report(obj != null and obj.visible and obj.text == str(gate_cfg.get("objectiveLocked", "")),
+		"HUD 目标行(简报后常驻): %s" % (obj.text if obj else "<missing>"))
+	# 楼层化区域提示已登记(楼梯间 1F / 三楼口 2F)
+	var h1 := false
+	var h2 := false
+	for h in _main.get("_hints"):
+		var t := str(h.get("text", ""))
+		if t.contains("配电设备的嗡鸣") and int(h.get("floor", 1)) == 1:
+			h1 = true
+		if t.contains("重物囤积") and int(h.get("floor", 1)) == 2:
+			h2 = true
+	_report(h1 and h2, "区域提示楼层化登记: 楼梯间(1F 嗡鸣) / 三楼口(2F 重物囤积)")
+	_gate_static_test_done = true
+
+
+## A批5/批6 · 层间贯通实测(协程): 二层哨戒敌不隔层侦测一楼玩家 → 两部楼梯×三角度
 ## (正面/左偏30°/右偏30°)实走上行——到顶 y 增量达标且贴近目标板面(不滞留)。
+## A批6: 起点改为"从行走面接近低端再上行"(A批5 起点在楼梯占地内直放直走,
+## 未覆盖真实路径 → 楼梯2 低端怼墙卡死漏检, 用户实机发现); 楼梯2 已改 dir=N。
 ## 帧位251, 全程约 230 帧; flag 测试(_verify_death_cleanup 尾部)等待
 ## _layer_test_done 串行, 避免旗标传送抢占玩家; campaign_flow(310) 容忍等待
 func _test_layer_climb() -> void:
@@ -381,21 +585,24 @@ func _test_layer_climb() -> void:
 	layer_enemy.global_position = Vector3(9.0, 2.6, 39.0)
 	layer_enemy.velocity = Vector3.ZERO
 
-	# 2) 两部楼梯×三角度实走上行(A批5 卡顶修复+楼梯间验收核心)。
-	#    楼梯1(一→二, N向升, 底z≈52/顶z=48, 井道内南向进入): 起点井道 row26 行走带
-	#    楼梯2(二→三, S向升, 底z≈42/顶z=46): 起点二层井道北端(落坡帧内沉降)
+	# 2) 两部楼梯×三角度实走上行(从行走面接近低端——A批6 真实路径口径)。
+	#    楼梯1(一→二, N向升, 低端 z=52.05): 起点一层井道行走带 (31,27)=(63,55) 北行,
+	#      走 3m 平地后零阶差踏上梯
+	#    楼梯2(二→三, A批6 改 N向, 低端 z=46.05): 起点二层落点走廊 (31,23)=(63,47.5)
+	#      北行踏上(原 S 向低端怼 row20 北墙, 只能侧面上坡卡死)
 	#    偏角行进会横向漂移, 起点对侧预偏保持全程在梯面(宽2格)内
-	await _climb_stair(Vector3(64.0, 0.0, 53.0), 0.0, 0.0, 2.6, 47.9, -1.0, "楼梯1(一→二)正面")
-	await _climb_stair(Vector3(65.3, 0.0, 53.0), PI / 6.0, 0.0, 2.6, 47.9, -1.0, "楼梯1(一→二)左偏30°")
-	await _climb_stair(Vector3(62.5, 0.0, 53.0), -PI / 6.0, 0.0, 2.6, 47.9, -1.0, "楼梯1(一→二)右偏30°")
-	await _climb_stair(Vector3(64.0, 3.2, 42.35), PI, 2.6, 5.2, 46.1, 1.0, "楼梯2(二→三)正面")
-	await _climb_stair(Vector3(62.7, 3.2, 42.35), PI + PI / 6.0, 2.6, 5.2, 46.1, 1.0, "楼梯2(二→三)左偏30°")
-	await _climb_stair(Vector3(65.3, 3.2, 42.35), PI - PI / 6.0, 2.6, 5.2, 46.1, 1.0, "楼梯2(二→三)右偏30°")
+	await _climb_stair(Vector3(64.0, 0.0, 55.0), 0.0, 0.0, 2.6, 47.9, -1.0, "楼梯1(一→二)正面")
+	await _climb_stair(Vector3(65.3, 0.0, 55.0), PI / 6.0, 0.0, 2.6, 47.9, -1.0, "楼梯1(一→二)左偏30°")
+	await _climb_stair(Vector3(62.5, 0.0, 55.0), -PI / 6.0, 0.0, 2.6, 47.9, -1.0, "楼梯1(一→二)右偏30°")
+	await _climb_stair(Vector3(64.0, 3.2, 47.5), 0.0, 2.6, 5.2, 41.9, -1.0, "楼梯2(二→三)正面")
+	await _climb_stair(Vector3(65.3, 3.2, 47.5), PI / 6.0, 2.6, 5.2, 41.9, -1.0, "楼梯2(二→三)左偏30°")
+	await _climb_stair(Vector3(62.5, 3.2, 47.5), -PI / 6.0, 2.6, 5.2, 41.9, -1.0, "楼梯2(二→三)右偏30°")
 	_layer_test_done = true
 
 
-## 实走上行辅助: 传送至梯底(start.y 为脚部起值), 沉降3帧后按住 W 35 物理帧
-## (速度14m/s ≈ 8.2m, 相对4m梯程余量充足), 断言: 自 expect_base 起爬升 >2.45m、
+## 实走上行辅助: 传送至梯底(start.y 为脚部起值), 沉降3帧后按住 W 45 物理帧
+## (速度14m/s ≈ 10.5m; A批6 起点改行走面接近后行程加长, 且坡面投影减速——
+## 35帧/8.2m 实测余量不足停在唇沿 90% 处), 断言: 自 expect_base 起爬升 >2.45m、
 ## 终点 y 站上目标板面(±0.12m)且水平越过洞缘平面(past_z×z_sign)——到顶不卡顶不滞留
 func _climb_stair(start: Vector3, ry: float, expect_base: float, target_top: float,
 		past_z: float, z_sign: float, label: String) -> void:
@@ -405,7 +612,7 @@ func _climb_stair(start: Vector3, ry: float, expect_base: float, target_top: flo
 	for i in 3:
 		await get_tree().physics_frame  # 沉降落坡/落地
 	_key_down(KEY_W)
-	for i in 35:
+	for i in 45:
 		await get_tree().physics_frame
 	_key_up(KEY_W)
 	await get_tree().physics_frame
@@ -492,6 +699,13 @@ func _test_campaign_flow() -> void:
 			mm_count += 1
 	_report(mm_count == 1,
 		"转关后小地图唯一(旧实例已释放防幽灵叠加): %d 个" % mm_count)
+	# A批6: 转关后小地图楼层化回退(map2 无 layers → 永远 1F 表现) + 合闸状态重置
+	var mm2: Node = _main.get_node("HUD").get_node_or_null("MiniMap")
+	_report(mm2 != null and (mm2.get("_floor_texes") as Dictionary).size() == 1
+		and mm2.current_floor() == 1,
+		"map2 无 layers: 小地图仅 1F 纹理, 当前楼层=1(向后兼容)")
+	_report(not _level.gate_powered and not _level.has_gate(),
+		"转关后合闸状态重置: map2 无闸, gate_powered=false")
 	_campaign_test_done = true
 
 
@@ -521,6 +735,8 @@ func _physics_process(_delta: float) -> void:
 		17: _test_campaign_config()
 		18: _test_layers_static()
 		19: _test_third_floor_static()
+		20: _test_minimap_floors()
+		21: _test_gate_static()
 		8: _test_initial_noop()
 		12: _setup_weapon_pickup()
 		25: _check_weapon_grant()
@@ -579,16 +795,35 @@ func _check_world_built() -> void:
 			elif c.symbol == "a" or c.symbol == "w":
 				legacy_count += 1
 	_report(pickup_count >= 20, "拾取物数量: %d (期望 >= 20)" % pickup_count)
-	_report(has_weapon_pickup, "冲锋枪拾取物已按配置生成")
-	_report(has_shotgun_pickup, "霰弹枪拾取物已按配置生成（北部仓库）")
-	_report(_count_symbol("s") == 8, "12号霰弹补给: %d 处 (期望 8)" % _count_symbol("s"))
-	_report(has_comp1 and has_comp2 and has_comp3, "一/二/三级升级组件已按配置生成")
+	_report(has_weapon_pickup, "冲锋枪拾取物已按配置生成(A批6: 二层 B 房间)")
+	_report(has_shotgun_pickup, "霰弹枪拾取物已按配置生成(A批6: 三层宝库)")
+	# A批6 霰弹重排: 一楼推进线 4 处 + 三层 2 处 = 6(原 8; 逐条报备见提交消息)
+	_report(_count_symbol("s") == 6, "12号霰弹补给: %d 处 (期望 6 = 一楼4 + 三层2)" % _count_symbol("s"))
+	# A批6: 三阶组件 v 移出第一关(归 B批3 map2 丘顶), map0 仅一/二级
+	_report(has_comp1 and has_comp2 and not has_comp3,
+		"升级组件: map0 仅一/二级(v 已移出第一关)")
 	_report(has_armor, "防护服能量补给已生成（a 符号位改造）")
 	_report(legacy_count == 0, "扩展弹匣/神经加速器已实机移除 (残留=%d)" % legacy_count)
 	# 道具平衡（map0）: a(5)+w(5)+每4个H → e=37；H 保留 82
 	# (A批5 pickupOverrides: 扫描H 108个→27e/81H + 配置放置1H = 82H, 口径不变)
 	_report(_count_symbol("e") == 37, "防护服电池数量: %d (期望 37)" % _count_symbol("e"))
 	_report(_count_symbol("H") == 82, "急救包数量: %d (期望 82)" % _count_symbol("H"))
+	# A批6 · 物资重排层落位核验(帧5, 必须在帧12冲锋枪拾取之前——W 被拾取后即离场):
+	# 符号/坐标/楼层 y/落点为层地板格(非墙非板洞)。注意 Pickup 触发半径 2.0m
+	_report(_count_symbol("v") == 0, "map0 已无三阶组件 v (移出第一关, 归 B批3 落 map2 丘顶)")
+	_assert_layer_entity("W", 5, 27, 2.6, "冲锋枪 W → 二层 B 房间 (5,27)")
+	_assert_layer_entity("T", 4, 27, 5.2, "霰弹枪 T → 三层 B 房间 (4,27)")
+	_assert_layer_entity("U", 6, 27, 5.2, "二阶组件 U → 三层 (6,27)")
+	_assert_layer_entity("s", 5, 28, 5.2, "12号霰弹 s → 三层 (5,28)")
+	_assert_layer_entity("s", 7, 26, 5.2, "12号霰弹 s → 三层 (7,26)")
+	var guard := false
+	for e in get_tree().get_nodes_in_group("enemies"):
+		var gc := Vector2i(int(e.global_position.x / WorldConst.CELL),
+			int(e.global_position.z / WorldConst.CELL))
+		if gc == Vector2i(9, 25) and int(e.template_id) == 2 \
+				and absf(float(e.global_position.y) - 5.2) < 0.1:
+			guard = true
+	_report(guard, "三层镇守敌在场: 巨型突变体宿主 id=2 @ (9,25) y=5.2")
 	_report(get_tree().get_first_node_in_group("player") != null, "玩家节点就绪")
 	var mm: Node = _main.get_node("HUD").get_node_or_null("MiniMap")
 	_report(mm != null and mm.get("_wall_tex") != null, "HUD 小地图已就绪")
@@ -751,8 +986,9 @@ func _test_facade_props() -> void:
 		"墙面贴花(大门): %d 个 (期望 %d, 与配置一致)" % [decals.size(), expect_decals])
 
 	# 贴花必须挂在真实墙格上(防配置行号偏移导致悬浮):
-	# 覆盖的每个格都须在 wall_cells 中。历史坑: 大门曾误配 y=37(空地),
-	# 真墙在 row 38 → 贴花悬浮空中 2 米, 仅查数量的断言漏检
+	# 覆盖的每个格都须在墙格集中。历史坑: 大门曾误配 y=37(空地),
+	# 真墙在 row 38 → 贴花悬浮空中 2 米, 仅查数量的断言漏检。
+	# A批6: floor≥2 的贴花挂层墙(如二层配电箱 (15,17)), 按楼层分层校验
 	for d in dcfg:
 		var dd: Dictionary = d
 		if int(dd.get("map", -1)) != 0:
@@ -761,14 +997,15 @@ func _test_facade_props() -> void:
 		var y0 := int(dd.get("y", 0))
 		var dw := maxi(1, int(dd.get("w", 1)))
 		var dface := str(dd.get("face", "N"))
+		var dfloor := maxi(1, int(dd.get("floor", 1)))
 		var on_wall := true
 		for i in dw:
 			# N/S 面贴花沿 x 覆盖 w 格; E/W 面沿 y 覆盖 w 格(与 _build_wall_decals 同口径)
 			var cell := Vector2i(x0, y0 + i) if (dface == "E" or dface == "W") else Vector2i(x0 + i, y0)
-			if not _level.wall_cells.has(cell):
+			if not _level.is_wall(cell.x, cell.y, dfloor):
 				on_wall = false
 		_report(on_wall,
-			"墙面贴花挂在真实墙格上: (%d,%d) 起 %d 格 face=%s" % [x0, y0, dw, dface])
+			"墙面贴花挂在真实墙格上: (%d,%d) 起 %d 格 face=%s floor=%d" % [x0, y0, dw, dface, dfloor])
 
 	# 逻辑零侵入不变式: 布景(立面/道具)不进碰撞层 → 碰撞体数恒等于墙格数
 	var col_body := _level.get_node_or_null("WallCollision")
@@ -968,7 +1205,10 @@ func _p2b_climb_setup() -> void:
 	var rz := float(int(ramp.get("y", 0))) * WorldConst.CELL
 	var rw := float(int(ramp.get("w", 1))) * WorldConst.CELL
 	var rh := float(int(ramp.get("h", 1))) * WorldConst.CELL
-	_p2b_climb_base_y = _player.global_position.y
+	# A批6: 组件/霰弹测试终点已上三层(物资上移), 此处先回一层再取基准——
+	# 原实现先记 base_y 再传送, 三层残留 y(≈5.2) 会把高差口径污染成负值。
+	# 传送 y=0.65 后重力沉降至地面 0, 基准取 0(与爬升起点同口径)
+	_p2b_climb_base_y = 0.0
 	_player.velocity = Vector3.ZERO
 	match dir:
 		"E":
@@ -1188,6 +1428,12 @@ func _test_health_full() -> void:
 func _test_components() -> void:
 	while not _health_test_done:  # 串行传送，避免抢占玩家位置
 		await get_tree().physics_frame
+	# A批6: U 已上移三层 (6,27), 三层镇守敌(巨型宿主, 9,25) 距落点≈7m 在侦测范围内
+	# ——本测试验拾取/数值而非战斗, 先把巨宿主伤害清零防干扰(位置不动, 在场断言不受影响)
+	for e in get_tree().get_nodes_in_group("enemies"):
+		if int(e.template_id) == 2:
+			e.fire_damage = 0
+			e.melee_damage = 0
 	# 1) 未持有一级时踩二级: 不生效且拾取物保留
 	_teleport_to_symbol("U", "二级组件")
 	for i in 4:
@@ -1230,7 +1476,15 @@ func _test_components() -> void:
 		% [int(sg["clipSize"]), int(sg["pellets"]), int(sg["damage"]), str(sg["pump"])])
 
 	# 4) 拾取三级组件: 手枪 33发/伤害55+转全自动，冲锋枪 60发/伤害55，射速封顶 40
-	_teleport_to_symbol("v", "三级组件")
+	# A批6: v 已移出 map0(map0 spawns 无残留, 归 B批3 落 map2 丘顶)——就地生成临时
+	# 三级组件在三层 (7,27)(U 旁地板格)再走拾取路径, 保持端到端语义(直接调
+	# apply_weapon_component 会绕过拾取拒收/信号链路)
+	var vp: Node3D = preload("res://scenes/entities/Pickup.tscn").instantiate()
+	vp.symbol = "v"
+	vp.position = Vector3((7 + 0.5) * WorldConst.CELL, 5.2, (27 + 0.5) * WorldConst.CELL)
+	_entities.add_child(vp)
+	_player.global_position = vp.position
+	_player.velocity = Vector3.ZERO
 	for i in 4:
 		await get_tree().physics_frame
 	_report(_player.weapon_tier == 3
@@ -1305,6 +1559,10 @@ func _setup_shoot() -> void:
 	while not _components_test_done or not _shotgun_test_done:  # 传送测试串行，避免抢占玩家位置
 		await get_tree().physics_frame
 	_player._switch_to(0)  # 切回手枪：命中断言按单发子弹伤害校验（霰弹为多弹丸）
+	# A批6: 组件/霰弹测试终点在三层(物资上移)——射击隔离回到一层开阔地 (20,35)
+	# (原冲锋枪落位, 现为地板), _path_clear 为一层墙格口径, 层墙会误判弹道遮挡
+	_player.velocity = Vector3.ZERO
+	_player.global_position = Vector3((20 + 0.5) * WorldConst.CELL, 0.65, (35 + 0.5) * WorldConst.CELL)
 	var enemy: Node
 	for e in get_tree().get_nodes_in_group("enemies"):
 		if is_instance_valid(e):
@@ -1382,6 +1640,40 @@ func _verify_death_cleanup() -> void:
 	# 等登顶测试完成后才传送至终点旗(campaign_flow 的 600 帧等待余量充足)
 	while not _layer_test_done:
 		await get_tree().physics_frame
+	# A批6 · 撤离闭锁: 未合闸触旗 → 不判通关 + toast 在场 + 旗保留
+	_setup_flag()
+	await get_tree().create_timer(0.2, true).timeout
+	_report(not _main.game_over, "撤离闭锁: 未合闸触旗不判通关 (game_over=false)")
+	var hud: Node = _main.get_node("HUD")
+	var gate_cfg: Dictionary = GameData.narrative_cfg.get("gate", {})
+	var toast: Label = hud.get("_toast")
+	_report(toast != null and toast.visible and toast.text == str(gate_cfg.get("toastLocked", "")),
+		"撤离闭锁 toast 在场: %s" % (toast.text if toast else "<missing>"))
+	var flags_left := 0
+	for c in _entities.get_children():
+		if c.has_signal("reached"):
+			flags_left += 1
+	_report(flags_left == 1, "未通电触旗后终点旗保留(不消旗, 通电可再触): %d" % flags_left)
+	# 合闸: 传送至配电箱触发区 (15,18) 二层(落板沉降) → 走进触发(零新按键)
+	_player.velocity = Vector3.ZERO
+	_player.global_position = Vector3(31.0, 3.25, 37.0)
+	await get_tree().create_timer(0.3, true).timeout
+	_report(_level.gate_powered, "合闸触发: gate_powered=true (走进触发区, 一次性)")
+	var toast2: Label = hud.get("_toast")
+	_report(toast2 != null and toast2.visible and toast2.text == str(gate_cfg.get("toastPowered", "")),
+		"合闸 toast 在场: %s" % (toast2.text if toast2 else "<missing>"))
+	var br: MeshInstance3D = _level.get_decal("breaker_2f")
+	var gt: MeshInstance3D = _level.get_decal("gate_cargo")
+	var br_on := br != null and ((br.mesh as QuadMesh).material as StandardMaterial3D) \
+		.albedo_texture.resource_path.ends_with("Breaker On.bmp")
+	var gt_open := gt != null and ((gt.mesh as QuadMesh).material as StandardMaterial3D) \
+		.albedo_texture.resource_path.ends_with("Gate Cargo Open.bmp")
+	_report(br_on, "合闸后配电箱换贴图: Breaker On(绿灯)")
+	_report(gt_open, "合闸后大门贴花切换: Gate Cargo Open(卷帘升起)")
+	var obj: Label = hud.get("_objective")
+	_report(obj != null and obj.text == str(gate_cfg.get("objectivePowered", "")),
+		"HUD 目标行随合闸切换: %s" % (obj.text if obj else "<missing>"))
+	# 通电后再触旗 → 正常通关
 	_setup_flag()
 	await get_tree().create_timer(0.2, true).timeout
 	_check_flag()
@@ -1404,7 +1696,8 @@ func _check_flag() -> void:
 func _finish() -> void:
 	while not _noop_test_done or not _cycle_test_done or not _components_test_done \
 			or not _shotgun_test_done or not _health_test_done or not _death_test_done \
-			or not _flag_test_done or not _campaign_test_done or not _layer_test_done:
+			or not _flag_test_done or not _campaign_test_done or not _layer_test_done \
+			or not _minimap_floor_test_done or not _gate_static_test_done:
 		await get_tree().physics_frame
 	print("[SMOKE] 结果: %s" % ("全部通过" if not _fail else "存在失败项"))
 	get_tree().quit(1 if _fail else 0)
