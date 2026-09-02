@@ -10,6 +10,8 @@ extends Node3D
 ##   同源的 LevelData 地图数据。庭院位于天花板平面之外 → 室内屋顶自然形成屋檐。
 
 signal goal_reached
+## A批6 · 合闸机制: 配电箱交互点触发时发出(Main 接 toast/HUD 目标行)
+signal breaker_activated
 
 const WALL_TEXTURES := {
 	"X": "res://assets/images/Wall Concrete.bmp",
@@ -31,6 +33,20 @@ var _courtyard_tint := Color(1.0, 1.0, 1.0)
 var _map_w := LevelData.WIDTH
 var _map_h := LevelData.HEIGHT
 var _outdoor := false  # 外部地图 outdoor=true: 无天花板(露天关卡)
+# A线·层叠数据模型: 楼层 -> 墙格集(Vector2i -> 符号)。层墙不进一楼 wall_cells
+# (一楼不变式原样), 供 is_wall 分层查询与小地图楼层化(批5)消费
+var _layer_cells := {}
+# 本图层区(天花板挖洞用): {rect: Rect2i, top: float(层顶高)}
+var _layer_rects: Array[Dictionary] = []
+# A批6 · 合闸机制运行时状态(build 时整体重置 = 转关/重打自动复位):
+# gate_powered=闸门供电标志; _gate_map=本图是否有配电箱交互点(有闸才闭锁);
+# _decals=贴花 id 注册表(状态切换用); _interactables=走进触发区列表
+var gate_powered := false
+var _gate_map := false
+var _decals := {}
+var _interactables: Array = []
+# A批6 · 小地图楼层化: 楼梯位置标记(楼层 -> 格坐标数组, 异色点用)
+var _stair_marks := {}
 
 
 func build(map_index: int, entity_root: Node3D) -> Vector3:
@@ -45,19 +61,35 @@ func build(map_index: int, entity_root: Node3D) -> Vector3:
 	_health_seen = 0
 	# B线转关复用本实例多次 build: 运行时状态必须整体重置
 	wall_cells.clear()
+	_layer_cells.clear()
+	_layer_rects.clear()
 	_courtyard_cells.clear()
 	_courtyard_rect = Rect2i()
 	_map_w = LevelData.WIDTH
 	_map_h = LevelData.HEIGHT
 	_outdoor = false
+	# A批6: 合闸机制状态重置(转关/重打 = 断电重来)
+	gate_powered = false
+	_decals.clear()
+	_interactables.clear()
+	_stair_marks.clear()
+	_gate_map = _map_has_breaker(map_index)
 	# B线: goals 命中且 suppressDataFlag → 抑制符号图 F 旗(改由配置旗接管)
 	var suppress_flag := _goal_suppress_data_flag(map_index)
+	# A批5: pickupOverrides.suppress — 符号图拾取生成跳过配置格(通用数组机制)
+	# A批8: 一批可抑制多格(一层补给减量, 匀往二三层)
+	var pickup_suppress := _pickup_suppress_cells(map_index)
+	# A批7: enemyOverrides.suppress — 符号图敌人减量(一层精英挖减, 捕3层重布)
+	var enemy_suppress := _enemy_suppress_cells(map_index)
 
 	for y in rows.size():
 		var row: String = rows[y]
 		for x in row.length():
 			var ch := row[x]
 			var ground := _cell_center(x, y)
+			if not pickup_suppress.is_empty() and "HCAhaw".contains(ch) \
+					and pickup_suppress.has(Vector2i(x, y)):
+				continue
 			match ch:
 				"X", "M", "S", "G":
 					buckets[ch].append(ground)
@@ -69,9 +101,13 @@ func build(map_index: int, entity_root: Node3D) -> Vector3:
 						continue
 					var flag: Node3D = FlagScene.instantiate()
 					flag.position = ground
+					flag.consume_on_reach = not _gate_map  # A批6: 有闸图触旗不消旗(闭锁)
 					flag.reached.connect(func(): goal_reached.emit())
 					entity_root.add_child(flag)
 				"0", "1", "2":
+					if not enemy_suppress.is_empty() \
+							and enemy_suppress.has(Vector2i(x, y)):
+						continue
 					var enemy: Node3D = EnemyScene.instantiate()
 					enemy.position = ground
 					enemy.template_id = int(ch)
@@ -107,12 +143,16 @@ func build(map_index: int, entity_root: Node3D) -> Vector3:
 
 	if ext_map.is_empty():
 		_apply_courtyard(map_index, buckets)
+		_apply_partitions(map_index, buckets)
 	else:
 		spawn = _apply_ext_map(ext_map, entity_root, buckets)
 	_build_walls(buckets)
+	# 层几何先于天花板: 天花板需按层区 rect 挖洞抬升(层区净空 = base→层顶)
+	_build_layers(map_index, entity_root)
 	_build_floor_ceiling()
 	_build_collision(buckets)
 	_build_terrain(map_index)
+	_build_stairs(map_index)
 	_build_facade(map_index)
 	_build_wall_decals(map_index)
 	_spawn_props(map_index)
@@ -120,6 +160,8 @@ func build(map_index: int, entity_root: Node3D) -> Vector3:
 	_spawn_shell_pickups(map_index, entity_root)
 	_spawn_upgrade_components(map_index, entity_root)
 	_spawn_goal_flags(map_index, entity_root)
+	_apply_pickup_overrides(map_index, entity_root)
+	_apply_enemy_overrides(map_index, entity_root)
 	return Vector3(spawn.x, 0.65, spawn.z)
 
 
@@ -152,6 +194,7 @@ func _spawn_goal_flags(map_index: int, entity_root: Node3D) -> void:
 			var fd: Dictionary = f
 			var flag: Node3D = FlagScene.instantiate()
 			flag.position = _cell_center(int(fd.get("x", 0)), int(fd.get("y", 0)))
+			flag.consume_on_reach = not _gate_map  # A批6: 有闸图触旗不消旗(闭锁)
 			flag.reached.connect(func(): goal_reached.emit())
 			entity_root.add_child(flag)
 
@@ -176,9 +219,10 @@ func _apply_ext_map(cfg: Dictionary, entity_root: Node3D, buckets: Dictionary) -
 
 	var fl: Dictionary = cfg.get("flag", {})
 	var flag: Node3D = FlagScene.instantiate()
-	# B线批3: flag 可带 y(米)——置于土丘顶等高处
+	# B线批3: flag 可带 y_m(米)——置于土丘顶等高处
 	flag.position = _cell_center(int(fl.get("x", _map_w - 3)), int(fl.get("y", 2))) \
 		+ Vector3(0.0, float(fl.get("y_m", 0.0)), 0.0)
+	flag.consume_on_reach = not _gate_map  # A批6: 有闸图触旗不消旗(闭锁)
 	flag.reached.connect(func(): goal_reached.emit())
 	entity_root.add_child(flag)
 
@@ -272,8 +316,88 @@ func _apply_ext_map(cfg: Dictionary, entity_root: Node3D, buckets: Dictionary) -
 	return spawn
 
 
-func is_wall(x: int, y: int) -> bool:
-	return wall_cells.has(Vector2i(x, y))
+func is_wall(x: int, y: int, floor_level := 1) -> bool:
+	if floor_level <= 1:
+		return wall_cells.has(Vector2i(x, y))
+	var cells: Dictionary = _layer_cells.get(floor_level, {})
+	return cells.has(Vector2i(x, y))
+
+
+## A线·取指定楼层的墙格集(Vector2i -> 符号; 供小地图楼层化/测试消费)
+func get_layer_cells(floor_level: int) -> Dictionary:
+	return _layer_cells.get(floor_level, {})
+
+
+## A批6 · 小地图楼层化: 楼梯位置标记(该梯覆盖的每层各登记 footprint 格)
+func get_stair_marks(floor_level: int) -> Array:
+	return _stair_marks.get(floor_level, [])
+
+
+## A批6 · 合闸机制: 本图是否配置了配电箱交互点(wallDecals interact=breaker)
+func has_gate() -> bool:
+	return _gate_map
+
+
+## A批8 · 小地图目标标记: 配电箱触发点清单(无闸图返回空数组)。
+## cell=触发格(供测试断言), pos=格中心米坐标(供标记绘制), floor=所属楼层。
+## 供电后仍返回——由调用方按 gate_powered 换色(目标已达成, 标记转暗淡)。
+func get_gate_marks() -> Array:
+	var out: Array = []
+	for entry in _interactables:
+		var d: Dictionary = entry
+		var p: Vector2 = d.get("pos", Vector2.ZERO)
+		out.append({
+			"cell": Vector2i(int(p.x / WorldConst.CELL), int(p.y / WorldConst.CELL)),
+			"pos": p,
+			"floor": int(d.get("floor", 1)),
+		})
+	return out
+
+
+func _map_has_breaker(map_index: int) -> bool:
+	for entry in GameData.level_ext_cfg.get("wallDecals", []):
+		var ed: Dictionary = entry
+		if int(ed.get("map", -1)) == map_index and str(ed.get("interact", "")) == "breaker":
+			return true
+	return false
+
+
+## A批6 · 贴花 id 注册表查询(状态切换/测试断言用)
+func get_decal(decal_id: String) -> MeshInstance3D:
+	return _decals.get(decal_id, null)
+
+
+## A批6 · 走进触发(wallDecals interact 扩展, 零新按键): Main._process 每帧传入
+## 玩家位置与楼层; 命中触发区(水平距离 ≤ radius 且楼层匹配)即一次性触发
+func tick_interactables(player_pos: Vector3, player_floor: int) -> void:
+	for it in _interactables:
+		if it["fired"] or int(it["floor"]) != player_floor:
+			continue
+		var d := Vector2(player_pos.x, player_pos.z).distance_to(it["pos"])
+		if d <= float(it["radius"]):
+			it["fired"] = true
+			_activate_breaker()
+
+
+## A批6 · 合闸: 供电标志置真 + 配电箱换"已合闸"贴图(onTexture) +
+## 所有带 poweredTexture 的贴花换开启态(如庭院货运大门) + 通知 Main
+func _activate_breaker() -> void:
+	if gate_powered:
+		return
+	gate_powered = true
+	for entry in GameData.level_ext_cfg.get("wallDecals", []):
+		var ed: Dictionary = entry
+		var swap_to := ""
+		if str(ed.get("interact", "")) == "breaker":
+			swap_to = str(ed.get("onTexture", ""))
+		elif ed.has("poweredTexture"):
+			swap_to = str(ed.get("poweredTexture", ""))
+		if swap_to.is_empty() or not ResourceLoader.exists(swap_to):
+			continue
+		var mi := get_decal(str(ed.get("id", "")))
+		if mi != null and mi.mesh is QuadMesh:
+			((mi.mesh as QuadMesh).material as StandardMaterial3D).albedo_texture = load(swap_to)
+	breaker_activated.emit()
 
 
 ## 庭院露天格集合（P2a，供测试与后续地形系统查询）
@@ -339,6 +463,107 @@ func _apply_courtyard(map_index: int, buckets: Dictionary) -> void:
 					wall_cells[cell] = symbol
 			else:
 				_courtyard_cells.append(cell)
+
+
+## A批5 · 一层隔墙(partitions): 把配置格登记进 wall_cells/buckets, 与原生墙一致的
+## 网格/碰撞/小地图表现(渲染/碰撞/小地图均从 wall_cells+buckets 派生, 登记即全链路生效)。
+## 已是墙的格(原生墙/同配置重复格/庭院围墙)跳过防重复建墙; LevelData 零触碰。
+## cells 为 [x,y] 对数组; symbol 缺省 X(混凝土, 与仓库内部墙一致)。
+func _apply_partitions(map_index: int, buckets: Dictionary) -> void:
+	for entry in GameData.level_ext_cfg.get("partitions", []):
+		var ed: Dictionary = entry
+		if int(ed.get("map", -1)) != map_index:
+			continue
+		var symbol := str(ed.get("symbol", "X"))
+		if not WALL_TEXTURES.has(symbol):
+			symbol = "X"
+		for c in ed.get("cells", []):
+			var cell := Vector2i(int(c[0]), int(c[1]))
+			if wall_cells.has(cell):
+				continue
+			buckets[symbol].append(_cell_center(cell.x, cell.y))
+			wall_cells[cell] = symbol
+
+
+## A批5 · pickupOverrides.suppress: 需在符号扫描中跳过的拾取格集(通用, 可多条)
+## A批8: suppress 兼容两种格式——单格字典 {x,y}(A批5 旧口径) 与
+## 数组 [{x,y},...](批量削减, 一层补给匀往二三层)
+func _pickup_suppress_cells(map_index: int) -> Dictionary:
+	var out := {}
+	for entry in GameData.level_ext_cfg.get("pickupOverrides", []):
+		var ed: Dictionary = entry
+		if int(ed.get("map", -1)) != map_index:
+			continue
+		var s: Variant = ed.get("suppress", {})
+		if s is Array:
+			for it in s:
+				var itd: Dictionary = it
+				out[Vector2i(int(itd.get("x", -1)), int(itd.get("y", -1)))] = true
+		elif s is Dictionary and not (s as Dictionary).is_empty():
+			var sd: Dictionary = s
+			out[Vector2i(int(sd.get("x", -1)), int(sd.get("y", -1)))] = true
+	return out
+
+
+## A批7 · enemyOverrides.suppress: 符号图敌人抑制格集(suppress 为数组,
+## 每条 {x,y} 一格; 一层精英减量——被抑制敌人由 place 捕3层重布)
+func _enemy_suppress_cells(map_index: int) -> Dictionary:
+	var out := {}
+	for entry in GameData.level_ext_cfg.get("enemyOverrides", []):
+		var ed: Dictionary = entry
+		if int(ed.get("map", -1)) != map_index:
+			continue
+		for s in ed.get("suppress", []):
+			var sd: Dictionary = s
+			out[Vector2i(int(sd.get("x", -1)), int(sd.get("y", -1)))] = true
+	return out
+
+
+## A批7 · enemyOverrides.place: 按配置落敌({x,y,id[,floor]}); floor≥2 时
+## 取该层 baseHeight 抬升(敌人原点在脚底, 落层板顶), 缺省 floor=1 地面
+func _apply_enemy_overrides(map_index: int, entity_root: Node3D) -> void:
+	for entry in GameData.level_ext_cfg.get("enemyOverrides", []):
+		var ed: Dictionary = entry
+		if int(ed.get("map", -1)) != map_index:
+			continue
+		for p in ed.get("place", []):
+			var pd: Dictionary = p
+			var floor_n := maxi(1, int(pd.get("floor", 1)))
+			var base_h := 0.0
+			if floor_n >= 2:
+				base_h = _layer_base_height(map_index, floor_n)
+			var enemy: Node3D = EnemyScene.instantiate()
+			enemy.position = _cell_center(int(pd.get("x", 0)), int(pd.get("y", 0))) \
+				+ Vector3(0.0, base_h, 0.0)
+			enemy.template_id = int(pd.get("id", 0))
+			enemy.projectile_root = get_parent()
+			entity_root.add_child(enemy)
+
+
+## A批7 · 取指定图/楼层的层板顶高(baseHeight, 未命中返回 0)
+func _layer_base_height(map_index: int, floor_n: int) -> float:
+	for entry in GameData.level_ext_cfg.get("layers", []):
+		var ed: Dictionary = entry
+		if int(ed.get("map", -1)) == map_index \
+				and int(ed.get("floor", 0)) == floor_n:
+			return float(ed.get("baseHeight", WorldConst.WALL_HEIGHT))
+	return 0.0
+
+
+## A批5 · pickupOverrides.place: 按配置落拾取(符号直给, 不介入 H→e 平衡计数——
+## 挪位语义=同一个急救包换位置, 全场 H/e 总量口径不变)
+func _apply_pickup_overrides(map_index: int, entity_root: Node3D) -> void:
+	for entry in GameData.level_ext_cfg.get("pickupOverrides", []):
+		var ed: Dictionary = entry
+		if int(ed.get("map", -1)) != map_index:
+			continue
+		var p: Dictionary = ed.get("place", {})
+		if p.is_empty():
+			continue
+		var pickup: Node3D = PickupScene.instantiate()
+		pickup.position = _cell_center(int(p.get("x", 0)), int(p.get("y", 0)))
+		pickup.symbol = str(p.get("symbol", "H"))
+		entity_root.add_child(pickup)
 
 
 ## 混合路线阶段一: 装饰外立面。现有墙顶(2.6m)之上叠 stories 层窗户带 + 女儿墙,
@@ -408,6 +633,9 @@ func _build_facade(map_index: int) -> void:
 ## 墙面贴花(布景): 把整面墙替换成专属贴图(如出生点货运大门)。与外立面同约定:
 ## 不登记 wall_cells、不进 buckets、不建碰撞 → 逻辑零侵入; 贴花面沿法线外推
 ## offset 防与原墙面共面闪烁。face 为法线朝向("N"=-Z "S"=+Z "E"=+X "W"=-X)。
+## A批6 扩展: floor=贴附楼层(≥2 为层墙, y 抬升 (floor-1)×WALL_HEIGHT);
+## id=注册进 _decals 供状态切换; interact="breaker"+radius+floor=走进触发区
+## (触发格=墙格沿 face 方向前一格, 一次性, 见 tick_interactables)。
 func _build_wall_decals(map_index: int) -> void:
 	var decals: Array = GameData.level_ext_cfg.get("wallDecals", [])
 	var idx := 0
@@ -427,6 +655,8 @@ func _build_wall_decals(map_index: int) -> void:
 		var height := WorldConst.WALL_HEIGHT
 		var offset := float(ed.get("offset", 0.05))
 		var face := str(ed.get("face", "N"))
+		var floor_n := maxi(1, int(ed.get("floor", 1)))  # A批6: 层墙贴花抬升
+		var base_y := float(floor_n - 1) * WorldConst.WALL_HEIGHT
 		# N/S 面墙沿 x 延伸 w 格；E/W 面墙沿 y 延伸 w 格（2026-08-30 庭院东墙大门，
 		# 转关叙事贴花。覆盖格口径与 SmokeTest 贴花墙格断言一致）
 		var cx: float
@@ -441,16 +671,16 @@ func _build_wall_decals(map_index: int) -> void:
 		var rot_y := 0.0
 		match face:
 			"N":
-				pos = Vector3(cx, height * 0.5, cz - WorldConst.CELL * 0.5 - offset)
+				pos = Vector3(cx, base_y + height * 0.5, cz - WorldConst.CELL * 0.5 - offset)
 				rot_y = PI
 			"S":
-				pos = Vector3(cx, height * 0.5, cz + WorldConst.CELL * 0.5 + offset)
+				pos = Vector3(cx, base_y + height * 0.5, cz + WorldConst.CELL * 0.5 + offset)
 				rot_y = 0.0
 			"E":
-				pos = Vector3(cx + WorldConst.CELL * 0.5 + offset, height * 0.5, cz)
+				pos = Vector3(cx + WorldConst.CELL * 0.5 + offset, base_y + height * 0.5, cz)
 				rot_y = PI / 2
 			"W":
-				pos = Vector3(cx - WorldConst.CELL * 0.5 - offset, height * 0.5, cz)
+				pos = Vector3(cx - WorldConst.CELL * 0.5 - offset, base_y + height * 0.5, cz)
 				rot_y = -PI / 2
 			_:
 				push_warning("墙面贴花未知 face: " + face)
@@ -469,6 +699,25 @@ func _build_wall_decals(map_index: int) -> void:
 		mi.position = pos
 		mi.add_to_group("wall_decals")
 		add_child(mi)
+		# A批6: id 注册(状态切换/测试定位) + 走进触发区登记(触发格=墙格沿 face 前一格)
+		var decal_id := str(ed.get("id", ""))
+		if not decal_id.is_empty():
+			_decals[decal_id] = mi
+		if str(ed.get("interact", "")) == "breaker":
+			var step := Vector2i(0, 0)
+			match face:
+				"N": step = Vector2i(0, -1)
+				"S": step = Vector2i(0, 1)
+				"E": step = Vector2i(1, 0)
+				"W": step = Vector2i(-1, 0)
+			var tcell := Vector2i(x0, y0) + step
+			_interactables.append({
+				"id": decal_id,
+				"pos": Vector2((tcell.x + 0.5) * WorldConst.CELL, (tcell.y + 0.5) * WorldConst.CELL),
+				"radius": float(ed.get("radius", 1.5)),
+				"floor": floor_n,
+				"fired": false,
+			})
 		idx += 1
 
 
@@ -658,6 +907,43 @@ func _build_floor_ceiling() -> void:
 	# outdoor 地图(如 map2 室外街道)无天花板, 露天由 Main 场景环境提供
 	if _outdoor:
 		return
+	# A线批3/批4r: 层区天花板——2.6 平面挖掉最外层区; 逐层生成暴露区顶板
+	# (层 i 的 rect 减上层 rect, 该层顶面高度——修复中间层暴露区全露天 bug);
+	# 最高层整块顶板; 露台/楼梯井露天由上层 slabHoles 板洞机制天然处理
+	if not _layer_rects.is_empty():
+		var sorted_layers: Array = _layer_rects.duplicate()
+		sorted_layers.sort_custom(func(a, b): return int(a["floor"]) < int(b["floor"]))
+		var outer: Rect2i = sorted_layers[0]["rect"]
+		for lrd in sorted_layers:
+			var rr: Rect2i = lrd["rect"]
+			if rr.get_area() > outer.get_area():
+				outer = rr
+		var o_x1 := outer.position.x + outer.size.x
+		var o_y1 := outer.position.y + outer.size.y
+		_ceiling_band(0, 0, _map_w, outer.position.y, WorldConst.WALL_HEIGHT)  # 北条
+		_ceiling_band(0, o_y1, _map_w, _map_h - o_y1, WorldConst.WALL_HEIGHT)  # 南条
+		_ceiling_band(0, outer.position.y, outer.position.x, outer.size.y, WorldConst.WALL_HEIGHT)  # 西条
+		_ceiling_band(o_x1, outer.position.y, _map_w - o_x1, outer.size.y, WorldConst.WALL_HEIGHT)  # 东条
+		for i in sorted_layers.size():
+			var cur: Dictionary = sorted_layers[i]
+			var cur_rect: Rect2i = cur["rect"]
+			var cur_top: float = float(cur["top"])
+			if i + 1 >= sorted_layers.size():
+				# 最高层: 整 rect 一块顶板(沿用 Ceiling 节点名, P2a 屋檐断言兼容)
+				_ceiling_band(cur_rect.position.x, cur_rect.position.y,
+					cur_rect.size.x, cur_rect.size.y, cur_top, "Ceiling")
+				continue
+			# 中间层暴露区: 本层 rect 内非周界墙位且未被上层覆盖的格 → 逐格板 @ 本层顶面
+			var upper: Rect2i = sorted_layers[i + 1]["rect"]
+			for cy in range(cur_rect.position.y, cur_rect.position.y + cur_rect.size.y):
+				for cxx in range(cur_rect.position.x, cur_rect.position.x + cur_rect.size.x):
+					var cell := Vector2i(cxx, cy)
+					var on_ring := cxx == cur_rect.position.x or cxx == cur_rect.position.x + cur_rect.size.x - 1 \
+						or cy == cur_rect.position.y or cy == cur_rect.position.y + cur_rect.size.y - 1
+					if on_ring or upper.has_point(cell):
+						continue
+					_ceiling_band(cxx, cy, 1, 1, cur_top)
+		return
 	var ceil_mat := StandardMaterial3D.new()
 	ceil_mat.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
 	ceil_mat.albedo_texture = load("res://assets/images/Ceiling.bmp")
@@ -672,6 +958,33 @@ func _build_floor_ceiling() -> void:
 	ceil_mi.position = Vector3(plane_size.x * 0.5, WorldConst.WALL_HEIGHT, plane_size.y * 0.5)
 	ceil_mi.rotation.x = PI  # 平面朝下
 	add_child(ceil_mi)
+
+
+## 天花板分片(格坐标区, 朝下平面)——层区挖洞后的环绕拼合用
+func _ceiling_band(x0: int, y0: int, w: int, h: int, y_height: float,
+		band_name: String = "") -> void:
+	if w <= 0 or h <= 0:
+		return
+	var size := Vector2(float(w) * WorldConst.CELL, float(h) * WorldConst.CELL)
+	var mat := StandardMaterial3D.new()
+	mat.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
+	mat.albedo_texture = load("res://assets/images/Ceiling.bmp")
+	mat.uv1_scale = Vector3(size.x / WorldConst.CELL, size.y / WorldConst.CELL, 1)
+	mat.backlight_enabled = false
+	var mesh := PlaneMesh.new()
+	mesh.size = size
+	mesh.material = mat
+	var mi := MeshInstance3D.new()
+	if band_name.is_empty():
+		band_name = "CeilingBand_%d_%d" % [x0, y0]
+	mi.name = band_name
+	mi.mesh = mesh
+	mi.position = Vector3(
+		(float(x0) + float(w) * 0.5) * WorldConst.CELL,
+		y_height,
+		(float(y0) + float(h) * 0.5) * WorldConst.CELL)
+	mi.rotation.x = PI  # 平面朝下
+	add_child(mi)
 
 	# P2a 庭院地面覆层: 仅覆盖庭院矩形，暗色冷调区分室内地砖;
 	# 抬升 1cm 防止与室内大地板共面闪烁; 露天无顶 —— 夜空由 Main 场景环境提供
@@ -744,22 +1057,156 @@ func _build_terrain(map_index: int) -> void:
 				idx += 1
 
 
-## 地形 y 基准: base(绝对米, B线批3阶梯土丘用)优先, 否则 floor((floor-1)×WALL_HEIGHT), 缺省地面 0
+## 地形/楼梯 y 基准: base(绝对米, A批4r 楼梯与 B批3 阶梯土丘任意高度起步用)优先,
+## 否则 floor((floor-1)×WALL_HEIGHT), 缺省地面 0
 func _terrain_base_y(cfg: Dictionary) -> float:
 	if cfg.has("base"):
 		return maxf(float(cfg.get("base", 0.0)), 0.0)
 	return float(maxi(1, int(cfg.get("floor", 1))) - 1) * WorldConst.WALL_HEIGHT
 
 
-## 实心平台: 矩形格区自地面抬升至 height, 顶面可行走/承碰撞
+
+## A批4r · 正经楼梯: 逐级 BoxMesh 台阶(纯视觉, 8级/层, 级高≤0.325m) +
+## 平滑斜坡碰撞(楼梯外观+坡道行走——业界常规, 纯踏步碰撞会卡脚/滑步)。
+## 底/顶落板等高衔接(碰撞几何同 ramp); 楼梯井穿板洞由 layers.slabHoles 配置
+## A批5: 顶端水平外延0.15m搭楼板面(卡顶修复); N/S 向台阶堆叠方向修正(原写反)
+func _build_stairs(map_index: int) -> void:
+	var idx := 0
+	for entry in GameData.level_ext_cfg.get("stairs", []):
+		var ed: Dictionary = entry
+		if int(ed.get("map", -1)) != map_index:
+			continue
+		if _build_stair(idx, ed):
+			idx += 1
+
+
+func _build_stair(idx: int, cfg: Dictionary) -> bool:
+	var x := int(cfg.get("x", 0))
+	var y := int(cfg.get("y", 0))
+	var w := maxi(1, int(cfg.get("w", 2)))   # 沿升向格数(水平长度)
+	var h := maxi(1, int(cfg.get("h", 1)))   # 楼梯宽格数
+	var dir := str(cfg.get("dir", "E"))
+	var height := float(cfg.get("height", 0.0))
+	var base_y := _terrain_base_y(cfg)
+	var steps := maxi(2, int(cfg.get("steps", 8)))
+	if height <= 0.0 or height > WorldConst.WALL_HEIGHT:
+		push_warning("stairs 高度无效 (%.2fm), 跳过" % height)
+		return false
+	var along_x := dir == "E" or dir == "W"
+	var span := float(w if along_x else h) * WorldConst.CELL
+	var width := float(h if along_x else w) * WorldConst.CELL
+	var slope_deg := rad_to_deg(atan2(height, span))
+	if slope_deg >= 45.0:
+		push_warning("stairs 坡度 %.1f° 超 45° 不可行走, 跳过" % slope_deg)
+		return false
+	if height / float(steps) > 0.325:
+		push_warning("stairs 级高 %.3fm 超 0.325m 上限, 跳过" % (height / float(steps)))
+		return false
+	var x0 := float(x) * WorldConst.CELL
+	var z0 := float(y) * WorldConst.CELL
+	var cx := x0 + float(w) * WorldConst.CELL * 0.5
+	var cz := z0 + float(h) * WorldConst.CELL * 0.5
+	# A批5 卡顶修复(实证推导): 坡面线必须穿过板洞沿角点(洞缘平面×目标板面高度)。
+	# 原方案"顶端水平外延0.15m、坡顶仍止于2.6"实测仍楔住: 胶囊(半径0.35)底球被
+	# 洞缘竖直唇沿挡停(top−0.24m处, 接触法线≈65°判为墙)。修法: 低端外延5cm咬合
+	# 地面不变; 坡线锚定角点(等高衔接), 顶端自角点沿坡向再外延0.15m搭进楼板——
+	# 唇沿上凸仅≈8cm且接触法线≈33°<45°(floor_max_angle), 胶囊滑上而非楔住。
+	# 实走验证: SmokeTest 两部楼梯×三角度上行全部到顶(站上目标板面)
+	var overlap_low := 0.05
+	var overlap_high := 0.15
+	var low := Vector3.ZERO
+	var corner := Vector3.ZERO
+	match dir:
+		"E":
+			low = Vector3(x0 - overlap_low, base_y, cz)
+			corner = Vector3(x0 + span, base_y + height, cz)
+		"W":
+			low = Vector3(x0 + span + overlap_low, base_y, cz)
+			corner = Vector3(x0, base_y + height, cz)
+		"S":
+			low = Vector3(cx, base_y, z0 - overlap_low)
+			corner = Vector3(cx, base_y + height, z0 + span)
+		"N":
+			low = Vector3(cx, base_y, z0 + span + overlap_low)
+			corner = Vector3(cx, base_y + height, z0)
+		_:
+			push_warning("stairs 未知 dir: " + dir)
+			return false
+	var high := corner + (corner - low).normalized() * overlap_high
+
+	# 碰撞: 平滑斜坡(无视觉 mesh, 视觉由台阶群承担)——楼梯外观+坡道行走
+	var fwd := (high - low).normalized()
+	var fwd_flat := Vector3(fwd.x, 0.0, fwd.z).normalized()
+	var side_w := fwd_flat.cross(Vector3.UP)
+	var up := side_w.cross(fwd)
+	var slope_len := (high - low).length()
+	var body := StaticBody3D.new()
+	body.name = "Stair_Ramp_%d" % idx
+	body.transform = Transform3D(Basis(fwd, up, side_w),
+		(low + high) * 0.5 - up * (TERRAIN_RAMP_THICK * 0.5))
+	var col := CollisionShape3D.new()
+	var shape := BoxShape3D.new()
+	shape.size = Vector3(slope_len, TERRAIN_RAMP_THICK, width)
+	col.shape = shape
+	body.add_child(col)
+	body.add_to_group("stairs")
+	add_child(body)
+
+	# 视觉: 逐级实心台阶盒(纯 Mesh, 不进碰撞)——第 i 级从基面堆叠到 (i+1)×级高
+	var tex_path := str(cfg.get("texture", ""))
+	var mat := StandardMaterial3D.new()
+	mat.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
+	mat.texture_filter = BaseMaterial3D.TEXTURE_FILTER_NEAREST
+	if ResourceLoader.exists(tex_path):
+		mat.albedo_texture = load(tex_path)
+	var step_h := height / float(steps)
+	var step_d := span / float(steps)
+	for i in steps:
+		var box := BoxMesh.new()
+		var mi := MeshInstance3D.new()
+		mi.name = "Stair_Step_%d_%d" % [idx, i]
+		box.material = mat
+		if along_x:
+			# E: 自西向东逐级升高; W: 自东向西
+			var s0 := x0 + (span * float(i) / float(steps) if dir == "E" \
+				else span * float(steps - i - 1) / float(steps))
+			box.size = Vector3(step_d, step_h * float(i + 1), width)
+			mi.position = Vector3(s0 + step_d * 0.5, base_y + step_h * float(i + 1) * 0.5, cz)
+		else:
+			# N: 自南向北逐级升高(低端在南); S: 自北向南(低端在北)
+			# A批5修复: 原 N/S 分支写反(低端堆了最高台阶——顶层台阶盒堵在楼梯入口,
+			# 与上行玩家胶囊视觉干涉); 旧楼梯均为 E 向从未暴露。顶层台阶顶面恰为
+			# base+height 与目标层板等高, 不凸出(胶囊半径0.35m 无干涉)
+			var t0 := z0 + (span * float(i) / float(steps) if dir == "S" \
+				else span * float(steps - i - 1) / float(steps))
+			box.size = Vector3(width, step_h * float(i + 1), step_d)
+			mi.position = Vector3(cx, base_y + step_h * float(i + 1) * 0.5, t0 + step_d * 0.5)
+		mi.mesh = box
+		add_child(mi)
+	# A批6: 小地图楼梯标记——footprint 格登记到该梯覆盖的每个楼层(底层与顶层)
+	var lo_floor := WorldConst.floor_at_y(base_y)
+	var hi_floor := WorldConst.floor_at_y(base_y + height)
+	for f in range(lo_floor, hi_floor + 1):
+		if not _stair_marks.has(f):
+			_stair_marks[f] = []
+		for sy in range(y, y + h):
+			for sx in range(x, x + w):
+				_stair_marks[f].append(Vector2i(sx, sy))
+	return true
+
+
+## 实心平台: 矩形格区自所在基面抬升至 height, 顶面可行走/承碰撞。
+## y 基准见 _terrain_base_y: base(A批4r 楼梯/B批3 阶梯土丘)优先, 否则 floor
+## 字段(A线批3) = (floor-1)×WALL_HEIGHT, 缺省 1(地面)向后兼容
 func _build_terrain_platform(idx: int, cfg: Dictionary) -> bool:
 	var x := int(cfg.get("x", 0))
 	var y := int(cfg.get("y", 0))
 	var w := maxi(1, int(cfg.get("w", 1)))
 	var h := maxi(1, int(cfg.get("h", 1)))
 	var height := float(cfg.get("height", 0.0))
-	# B线批3: base(绝对米)优先/floor((floor-1)×WALL_HEIGHT)次之/缺省地面0——分层地形与阶梯土丘通用
+	# y 基准: base(绝对米)优先/floor((floor-1)×WALL_HEIGHT)次之/缺省地面0——分层地形与阶梯土丘通用
 	var base_y := _terrain_base_y(cfg)
+	# 上限含等号: height==WALL_HEIGHT(2.6)合法——层间坡道顶恰为上层地板
 	if height <= 0.0 or height > WorldConst.WALL_HEIGHT:
 		push_warning("terrain.platform 高度无效 (%.2fm), 跳过" % height)
 		return false
@@ -775,7 +1222,7 @@ func _build_terrain_platform(idx: int, cfg: Dictionary) -> bool:
 
 ## 斜坡: 沿 dir(N/S/E/W, 坡顶朝向)自所在基面抬升至 height 的坡板。
 ## 水平跨距 = dir 轴向格数×CELL, 坡度须 <45°(CharacterBody3D 可行走上限);
-## 两端各延 5cm 咬合地面与平台消缝。base/floor 字段同 platform。
+## 两端各延 5cm 咬合地面与平台消缝。base/floor 字段同 platform(见 _terrain_base_y)。
 func _build_terrain_ramp(idx: int, cfg: Dictionary) -> bool:
 	var x := int(cfg.get("x", 0))
 	var y := int(cfg.get("y", 0))
@@ -784,6 +1231,7 @@ func _build_terrain_ramp(idx: int, cfg: Dictionary) -> bool:
 	var height := float(cfg.get("height", 0.0))
 	var dir := str(cfg.get("dir", "E"))
 	var base_y := _terrain_base_y(cfg)
+	# 上限含等号: height==WALL_HEIGHT(2.6)合法——一层坡道顶恰为二层地板
 	if height <= 0.0 or height > WorldConst.WALL_HEIGHT:
 		push_warning("terrain.ramp 高度无效 (%.2fm), 跳过" % height)
 		return false
@@ -830,7 +1278,7 @@ func _build_terrain_ramp(idx: int, cfg: Dictionary) -> bool:
 
 
 func _make_terrain_body(body_name: String, basis: Basis, center: Vector3,
-		size: Vector3, mat: Material) -> StaticBody3D:
+		size: Vector3, mat: Material, group := "terrain") -> StaticBody3D:
 	var body := StaticBody3D.new()
 	body.name = body_name
 	body.transform = Transform3D(basis, center)
@@ -845,9 +1293,167 @@ func _make_terrain_body(body_name: String, basis: Basis, center: Vector3,
 	box.material = mat
 	mi.mesh = box
 	body.add_child(mi)
-	body.add_to_group("terrain")
+	body.add_to_group(group)
 	add_child(body)
 	return body
+
+
+## A线批3 · 层叠数据模型落地: 楼板(slabHoles 挖洞) + 层墙(grid 逐格符号,
+## y 偏移 baseHeight, 沿用墙材质) + 层实体(enemies/pickups 按 baseHeight 抬升)。
+## A批7 · 承载重构: 楼板/层墙渲染改 MultiMesh(每层每符号 1 实例), 碰撞改
+## 行合并宽 BoxShape 挂单层 body(参照一层墙 _build_walls/_build_collision 模式)
+## ——扩面至全图规模时避免逐格 StaticBody 爆节点(~28000 body)。
+## custom_aabb 必须按实际格集计算(视锥剔除坑)。层墙登记 _layer_cells 不进
+## 一楼 wall_cells; 碰撞 body 挂 "layers" 组 → 一楼不变式原样。无 layers 配置零变化。
+const LAYER_SLAB_THICK := 0.3  # 楼板厚度(米), 顶面=baseHeight
+
+
+func _build_layers(map_index: int, entity_root: Node3D) -> void:
+	for entry in GameData.level_ext_cfg.get("layers", []):
+		var ed: Dictionary = entry
+		if int(ed.get("map", -1)) != map_index:
+			continue
+		var floor_n := maxi(2, int(ed.get("floor", 2)))
+		var base_h := float(ed.get("baseHeight", WorldConst.WALL_HEIGHT))
+		var rect: Dictionary = ed.get("rect", {})
+		var x0 := int(rect.get("x", 0))
+		var y0 := int(rect.get("y", 0))
+		var rw := maxi(1, int(rect.get("w", 1)))
+		var rh := maxi(1, int(rect.get("h", 1)))
+		var holes := {}
+		for hh in ed.get("slabHoles", []):
+			var hd: Dictionary = hh
+			holes[Vector2i(int(hd.get("x", -1)), int(hd.get("y", -1)))] = true
+		_layer_cells[floor_n] = {}
+		_layer_rects.append({
+			"floor": floor_n,
+			"rect": Rect2i(x0, y0, rw, rh),
+			"top": base_h + WorldConst.WALL_HEIGHT,
+		})
+
+		# 楼板: MultiMesh 渲染 + 行合并碰撞(单 body 挂 "layers" 组)
+		var slab_mat := _terrain_material(ed)
+		var slab_positions: Array[Vector3] = []
+		var slab_col := StaticBody3D.new()
+		slab_col.name = "Layer_SlabCol_F%d" % floor_n
+		slab_col.add_to_group("layers")
+		add_child(slab_col)
+		for y in range(y0, y0 + rh):
+			var run_x := -1  # 当前连续板段起点(-1=无)
+			for x in range(x0, x0 + rw + 1):
+				var solid := x < x0 + rw and not holes.has(Vector2i(x, y))
+				if solid:
+					if run_x < 0:
+						run_x = x
+					slab_positions.append(_cell_center(x, y) \
+						+ Vector3(0.0, base_h - LAYER_SLAB_THICK * 0.5, 0.0))
+				if not solid and run_x >= 0:
+					_add_run_collision(slab_col, run_x, x - run_x, y,
+						base_h - LAYER_SLAB_THICK * 0.5, LAYER_SLAB_THICK)
+					run_x = -1
+		if not slab_positions.is_empty():
+			_add_layer_multimesh("Layer_Slabs_F%d" % floor_n, slab_positions,
+				Vector3(WorldConst.CELL, LAYER_SLAB_THICK, WorldConst.CELL), slab_mat)
+
+		# 层墙: grid 逐格符号(相对 rect 原点; 行=符号 row)
+		# 渲染=每符号 1 个 MultiMesh; 碰撞=逐格共享 shape(同一层 body)——
+		# 不可行合并: 楼梯井道恰在墙格接缝上(如 col32 两侧均墙), 旧逐格盒
+		# 接缝法线相消可侧穿, 合并后实墙堵死楼梯(回归实证);
+		# _layer_cells 仍逐格登记(is_wall 分层查询/小地图消费)
+		var wall_mats := {}
+		var wall_positions := {}  # 符号 -> Array[Vector3]
+		var wall_col := StaticBody3D.new()
+		wall_col.name = "Layer_WallCol_F%d" % floor_n
+		wall_col.add_to_group("layers")
+		add_child(wall_col)
+		var wall_shared := BoxShape3D.new()
+		wall_shared.size = Vector3(WorldConst.CELL, WorldConst.WALL_HEIGHT, WorldConst.CELL)
+		var grid: Array = ed.get("grid", [])
+		for gy in grid.size():
+			var row_str := str(grid[gy])
+			for gx in row_str.length():
+				var ch := row_str[gx]
+				if not WALL_TEXTURES.has(ch):
+					continue
+				if not wall_mats.has(ch):
+					var m := StandardMaterial3D.new()
+					m.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
+					m.albedo_texture = load(WALL_TEXTURES[ch])
+					wall_mats[ch] = m
+				if not wall_positions.has(ch):
+					wall_positions[ch] = [] as Array[Vector3]
+				var cx := x0 + gx
+				var cy := y0 + gy
+				var pos := _cell_center(cx, cy) \
+					+ Vector3(0.0, base_h + WorldConst.WALL_HEIGHT * 0.5, 0.0)
+				(wall_positions[ch] as Array).append(pos)
+				_layer_cells[floor_n][Vector2i(cx, cy)] = ch
+				var wcol := CollisionShape3D.new()
+				wcol.shape = wall_shared
+				wcol.position = pos
+				wall_col.add_child(wcol)
+		for sym in wall_positions:
+			_add_layer_multimesh("Layer_Walls_F%d_%s" % [floor_n, sym],
+				wall_positions[sym],
+				Vector3(WorldConst.CELL, WorldConst.WALL_HEIGHT, WorldConst.CELL),
+				wall_mats[sym])
+
+		# 层实体: 敌人/拾取物按 baseHeight 抬升(敌人原点在脚底, 落板顶)
+		for e in ed.get("enemies", []):
+			var edd: Dictionary = e
+			var enemy: Node3D = EnemyScene.instantiate()
+			enemy.position = _cell_center(int(edd.get("x", 0)), int(edd.get("y", 0))) \
+				+ Vector3(0.0, base_h, 0.0)
+			enemy.template_id = int(edd.get("id", 0))
+			enemy.projectile_root = get_parent()
+			entity_root.add_child(enemy)
+		for p in ed.get("pickups", []):
+			var pd: Dictionary = p
+			var pickup: Node3D = PickupScene.instantiate()
+			pickup.position = _cell_center(int(pd.get("x", 0)), int(pd.get("y", 0))) \
+				+ Vector3(0.0, base_h, 0.0)
+			pickup.symbol = str(pd.get("symbol", "A"))
+			entity_root.add_child(pickup)
+
+
+## A批7 · 层几何 MultiMesh 渲染: custom_aabb 按实际实例包围盒计算(防视锥剔除)
+func _add_layer_multimesh(mm_name: String, positions: Array, box_size: Vector3,
+		mat: Material) -> void:
+	if positions.is_empty():
+		return
+	var half := box_size * 0.5
+	var minc: Vector3 = positions[0]
+	var maxc: Vector3 = positions[0]
+	for p in positions:
+		minc = minc.min(p)
+		maxc = maxc.max(p)
+	var box := BoxMesh.new()
+	box.size = box_size
+	var mm := MultiMeshInstance3D.new()
+	mm.name = mm_name
+	mm.multimesh = MultiMesh.new()
+	mm.multimesh.transform_format = MultiMesh.TRANSFORM_3D
+	mm.multimesh.mesh = box
+	mm.multimesh.custom_aabb = AABB(minc - half, maxc - minc + box_size)
+	mm.material_override = mat
+	mm.multimesh.instance_count = positions.size()
+	for i in positions.size():
+		mm.multimesh.set_instance_transform(i, Transform3D(Basis.IDENTITY, positions[i]))
+	add_child(mm)
+
+
+## A批7 · 行合并碰撞: 一行连续 run_len 格合并为一个宽 BoxShape(挂层碰撞 body)
+func _add_run_collision(body: StaticBody3D, run_x0: int, run_len: int, row_y: int,
+		center_y: float, thick: float) -> void:
+	var col := CollisionShape3D.new()
+	var shape := BoxShape3D.new()
+	shape.size = Vector3(float(run_len) * WorldConst.CELL, thick, WorldConst.CELL)
+	col.shape = shape
+	col.position = Vector3(
+		(float(run_x0) + float(run_len) * 0.5) * WorldConst.CELL,
+		center_y,
+		(float(row_y) + 0.5) * WorldConst.CELL)
+	body.add_child(col)
 
 
 func _terrain_material(cfg: Dictionary) -> StandardMaterial3D:

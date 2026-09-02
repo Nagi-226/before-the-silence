@@ -4,6 +4,10 @@ extends Area3D
 
 signal reached
 
+## A批6 · 撤离闭锁: 有合闸机制的图(false)触旗只发信号不消旗——
+## 未通电时 Main 拒绝通关, 旗须保留供通电后再次触发; 无闸图(true)维持原行为
+var consume_on_reach := true
+
 
 func _ready() -> void:
 	body_entered.connect(_on_body_entered)
@@ -12,4 +16,5 @@ func _ready() -> void:
 func _on_body_entered(body: Node3D) -> void:
 	if body.is_in_group("player"):
 		reached.emit()
-		queue_free()
+		if consume_on_reach:
+			queue_free()
