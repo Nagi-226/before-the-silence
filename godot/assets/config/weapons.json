@@ -53,7 +53,11 @@
     }
   ],
 
-  "sharedReserve": 90,
+  "_ammoReservesComment": "分口径备弹池初值(替代旧 sharedReserve 单池——用户实机指出9mm与12号霰弹混池): 9×19mm=手枪+冲锋枪共用, 12号霰弹=霰弹枪专用(初值0, 靠 s 补给/重复霰弹枪拾取积累)。补给路由见 pickups.json amounts.ammoPickupType/shellPickupType。",
+  "ammoReserves": {
+    "9×19mm": 90,
+    "12号霰弹": 0
+  },
 
   "pickupSpawns": [
     { "weapon": "smg", "map": 1, "x": 14, "y": 10 },

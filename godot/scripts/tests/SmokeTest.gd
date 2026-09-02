@@ -732,8 +732,13 @@ func _test_campaign_flow() -> void:
 		var bd: Dictionary = bb
 		expect_cells += 2 * (int(bd.get("w", 0)) + int(bd.get("h", 0))) - 4
 		expect_cells -= maxi(0, int((bd.get("door", {}) as Dictionary).get("w", 0)))
+	# B批5: cityBlocks 装饰体块登记实心 footprint(整块 w×h 进 wall_cells, 不可进入)
+	for cb in GameData.level_ext_cfg.get("cityBlocks", []):
+		var cbd: Dictionary = cb
+		if int(cbd.get("map", -1)) == 2:
+			expect_cells += int(cbd.get("w", 0)) * int(cbd.get("h", 0))
 	_report(_level.wall_cells.size() == expect_cells,
-		"map2 墙格: %d (期望 %d = 围界环 + 建筑周界 - 门洞, 配置推导)"
+		"map2 墙格: %d (期望 %d = 围界环 + 建筑周界 - 门洞 + 街区体块 footprint, 配置推导)"
 		% [_level.wall_cells.size(), expect_cells])
 	_report(_level.get_node_or_null("Ceiling") == null, "map2 室外无天花板 (outdoor)")
 	# B批2 · 建筑门洞开通与马路覆层
@@ -882,6 +887,56 @@ func _test_campaign_flow() -> void:
 			and hint_text2.contains("土丘"),
 		"B批4·文案 map2 区域提示 %d 条 (期望 6), 覆盖转运站/派出所/便利店/土丘地标" \
 		% hint_count2)
+	# B批5·密集街区: cityBlocks 装饰体块(实心窗格大楼, 不可进入, 主街两旁巷战)
+	var expect_blocks := 0
+	for cb in GameData.level_ext_cfg.get("cityBlocks", []):
+		var cbd: Dictionary = cb
+		if int(cbd.get("map", -1)) == 2:
+			expect_blocks += 1
+	var block_nodes := get_tree().get_nodes_in_group("city_blocks")
+	_report(expect_blocks > 0 and block_nodes.size() == expect_blocks,
+		"B批5 密集街区体块: %d 个 (期望 %d, 与配置一致)" % [block_nodes.size(), expect_blocks])
+	# 地标塔为最高体块(12层≈31.2m): 验证高层天际线呈现
+	var landmark: Node3D = null
+	for bn in block_nodes:
+		if bn.name == "LandmarkTower":
+			landmark = bn
+	var lm_h := 0.0
+	if landmark != null:
+		for mc in landmark.get_children():
+			if mc is MeshInstance3D and mc.mesh is QuadMesh:
+				lm_h = (mc.mesh as QuadMesh).size.y
+				break
+	_report(landmark != null and lm_h > 28.0,
+		"B批5 地标塔: 高度 %.1fm (期望 >28m, 12层高层建筑)" % lm_h)
+	# 主干道贯通: 主街中线 y42 全线可通行(体块退让街廊, 形成两旁密集界面)
+	var street_open := true
+	for sx in range(2, 138, 8):
+		if _level.is_wall(sx, 42):
+			street_open = false
+			break
+	_report(street_open, "B批5 主干道 y42 全线贯通(街廊无体块阻断, 巷战主动线)")
+	# 纵向街巷: 次街A(x59)/B(x101) + 南巷C(x29)/D(x71) 连通(街角小道辅助动线)
+	var lanes_open: bool = not _level.is_wall(59, 35) and not _level.is_wall(101, 35) \
+		and not _level.is_wall(29, 50) and not _level.is_wall(71, 50)
+	_report(lanes_open, "B批5 纵向街巷贯通: 次街A/B + 南巷C/D 辅助动线可通行")
+	# 实体不可进入: 体块 footprint 登记为墙(碰撞/AI/小地图同源), 玩家无法穿入
+	_report(_level.is_wall(5, 35) and _level.is_wall(45, 25),
+		"B批5 体块实心不可进入: footprint 登记墙格(碰撞/AI/小地图同源)")
+	# 可达性: 出生/旗标/敌人/拾取格均非墙(未被体块掩埋)
+	var reach_ok: bool = not _level.is_wall(int((m2cfg.get("spawn", {}) as Dictionary).get("x", 0)),
+			int((m2cfg.get("spawn", {}) as Dictionary).get("y", 0))) \
+		and not _level.is_wall(int((m2cfg.get("flag", {}) as Dictionary).get("x", 0)),
+			int((m2cfg.get("flag", {}) as Dictionary).get("y", 0)))
+	for en in m2cfg.get("enemies", []):
+		var end_: Dictionary = en
+		if _level.is_wall(int(end_.get("x", 0)), int(end_.get("y", 0))):
+			reach_ok = false
+	for pk in m2cfg.get("pickups", []):
+		var pkd: Dictionary = pk
+		if _level.is_wall(int(pkd.get("x", 0)), int(pkd.get("y", 0))):
+			reach_ok = false
+	_report(reach_ok, "B批5 可达性: 出生/旗标/敌人/拾取格均非墙(未被体块掩埋)")
 	_campaign_test_done = true
 
 
@@ -1785,12 +1840,17 @@ func _test_shotgun() -> void:
 	_report(_player.ammo_clip == clip_before - 1,
 		"霰弹一发耗一壳: %d -> %d" % [clip_before, _player.ammo_clip])
 
-	var reserve_before: int = _player.ammo_reserve
+	var reserve_before: int = _player.ammo_reserve  # 当前=霰弹枪→12号霰弹池
+	var res9mm_before: int = int(_player.ammo_reserves.get("9×19mm", 0))
 	_teleport_to_symbol("s", "12号霰弹")
 	for i in 4:
 		await get_tree().physics_frame
 	_report(_player.ammo_reserve == reserve_before + 6,
 		"12号霰弹补给: 备弹 %d -> %d (期望 +6)" % [reserve_before, _player.ammo_reserve])
+	# 分池验证: s补给只进12号池, 9×19mm池保持不变(证明霰弹备弹与9mm不再混池)
+	_report(int(_player.ammo_reserves.get("9×19mm", 0)) == res9mm_before
+		and _player.ammo_reserves.has("12号霰弹"),
+		"弹药分池: s补给后 9×19mm 池 %d 不变, 12号霰弹池独立存在" % res9mm_before)
 	_shotgun_test_done = true
 
 

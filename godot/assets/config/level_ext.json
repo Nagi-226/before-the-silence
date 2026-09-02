@@ -4061,12 +4061,13 @@
     }
   ],
   "campaign": {
-    "_comment": "B线·关卡流程序列(map_index数据索引): 0=城区仓库区(第一关) → 2=城区街道(第二关,室外) → 1=地下隐匿设施(第三关)。转关=场景内重建保留Player实例(跨关数据免序列化)。",
+    "_comment": "B线·关卡流程序列(map_index数据索引): 0=城区仓库区(第一关) → 2=城区街道(第二关,室外) → 1=地下隐匿设施(第三关)。转关=场景内重建保留Player实例(跨关数据免序列化)。startMap=主菜单「新的行动」默认起手关(数据索引): QA期设2直入第二关验收, 改回0即从第一关起; 仅经主菜单入口注入生效, SmokeTest 直挂 Main 绕过菜单恒从 sequence[0] 起(回归不受影响)。",
     "sequence": [
       0,
       2,
       1
-    ]
+    ],
+    "startMap": 2
   },
   "goals": [
     {
@@ -4131,30 +4132,6 @@
             "pos": 8,
             "w": 2
           }
-        },
-        {
-          "name": "装饰D1",
-          "x": 10,
-          "y": 52,
-          "w": 17,
-          "h": 13,
-          "symbol": "S"
-        },
-        {
-          "name": "装饰D2",
-          "x": 40,
-          "y": 56,
-          "w": 17,
-          "h": 13,
-          "symbol": "M"
-        },
-        {
-          "name": "装饰D3",
-          "x": 84,
-          "y": 54,
-          "w": 17,
-          "h": 13,
-          "symbol": "S"
         }
       ],
       "spawn": {
@@ -4400,6 +4377,60 @@
         }
       ]
     }
+  ],
+  "cityBlocks": [
+    {
+      "_comment": "B批5·密集街区装饰建筑(实心窗格体块): 主街两侧连续临街界面(4~6层) + 中层(6~8层) + 高层塔(8~10层) + 地标塔(12层), 次街A/B与南巷C/D为主纵向通道, 体块间 3 格隙为街角小道。渲染器 _build_city_blocks 数组驱动: 登记 wall_cells(实心不可进入, AI/小地图/碰撞同源) + 独立 StaticBody3D 碰撞, 不进 buckets(免与高楼体块共面)。均避开主街/次街/南巷/三栋可进入建筑及其门前通道/东北信标土丘及坡道接引/南侧废墟坡地。面向 C(完整城市网格)可直接追加条目加密, 渲染器与断言不改。坐标由 scripts/gen_city_blocks.py 确定性生成并校验无冲突。"
+    },
+    { "name": "Block_0", "map": 2, "x": 1, "y": 31, "w": 14, "h": 9, "stories": 5 },
+    { "name": "Block_1", "map": 2, "x": 19, "y": 31, "w": 14, "h": 9, "stories": 6 },
+    { "name": "Block_2", "map": 2, "x": 36, "y": 31, "w": 14, "h": 9, "stories": 6 },
+    { "name": "Block_3", "map": 2, "x": 53, "y": 31, "w": 6, "h": 9, "stories": 6 },
+    { "name": "Block_4", "map": 2, "x": 61, "y": 31, "w": 11, "h": 9, "stories": 6 },
+    { "name": "Block_5", "map": 2, "x": 76, "y": 31, "w": 14, "h": 9, "stories": 4 },
+    { "name": "Block_6", "map": 2, "x": 93, "y": 31, "w": 8, "h": 9, "stories": 4 },
+    { "name": "Block_7", "map": 2, "x": 103, "y": 31, "w": 14, "h": 9, "stories": 6 },
+    { "name": "Block_8", "map": 2, "x": 121, "y": 31, "w": 6, "h": 9, "stories": 4 },
+    { "name": "Block_9", "map": 2, "x": 1, "y": 21, "w": 7, "h": 9, "stories": 7 },
+    { "name": "Block_10", "map": 2, "x": 25, "y": 21, "w": 14, "h": 9, "stories": 8 },
+    { "name": "LandmarkTower", "map": 2, "x": 42, "y": 21, "w": 14, "h": 9, "stories": 12 },
+    { "name": "Block_12", "map": 2, "x": 61, "y": 21, "w": 11, "h": 9, "stories": 7 },
+    { "name": "Block_13", "map": 2, "x": 76, "y": 21, "w": 14, "h": 9, "stories": 8 },
+    { "name": "Block_14", "map": 2, "x": 93, "y": 21, "w": 8, "h": 9, "stories": 8 },
+    { "name": "Block_15", "map": 2, "x": 103, "y": 21, "w": 7, "h": 9, "stories": 7 },
+    { "name": "Block_16", "map": 2, "x": 1, "y": 6, "w": 7, "h": 14, "stories": 10 },
+    { "name": "Block_17", "map": 2, "x": 25, "y": 6, "w": 14, "h": 14, "stories": 8 },
+    { "name": "Block_18", "map": 2, "x": 42, "y": 6, "w": 14, "h": 14, "stories": 8 },
+    { "name": "Block_19", "map": 2, "x": 61, "y": 6, "w": 7, "h": 14, "stories": 10 },
+    { "name": "Block_20", "map": 2, "x": 79, "y": 6, "w": 14, "h": 14, "stories": 8 },
+    { "name": "Block_21", "map": 2, "x": 96, "y": 6, "w": 5, "h": 14, "stories": 8 },
+    { "name": "Block_22", "map": 2, "x": 103, "y": 6, "w": 7, "h": 14, "stories": 10 },
+    { "name": "Block_23", "map": 2, "x": 1, "y": 46, "w": 14, "h": 9, "stories": 4 },
+    { "name": "Block_24", "map": 2, "x": 18, "y": 46, "w": 11, "h": 9, "stories": 4 },
+    { "name": "Block_25", "map": 2, "x": 31, "y": 46, "w": 14, "h": 9, "stories": 6 },
+    { "name": "Block_26", "map": 2, "x": 48, "y": 46, "w": 14, "h": 9, "stories": 6 },
+    { "name": "Block_27", "map": 2, "x": 65, "y": 46, "w": 6, "h": 9, "stories": 6 },
+    { "name": "Block_28", "map": 2, "x": 73, "y": 46, "w": 14, "h": 9, "stories": 6 },
+    { "name": "Block_29", "map": 2, "x": 90, "y": 46, "w": 14, "h": 9, "stories": 6 },
+    { "name": "Block_30", "map": 2, "x": 107, "y": 46, "w": 14, "h": 9, "stories": 6 },
+    { "name": "Block_31", "map": 2, "x": 124, "y": 46, "w": 14, "h": 9, "stories": 6 },
+    { "name": "Block_32", "map": 2, "x": 1, "y": 56, "w": 14, "h": 9, "stories": 6 },
+    { "name": "Block_33", "map": 2, "x": 18, "y": 56, "w": 11, "h": 9, "stories": 6 },
+    { "name": "Block_34", "map": 2, "x": 39, "y": 56, "w": 14, "h": 9, "stories": 7 },
+    { "name": "Block_35", "map": 2, "x": 56, "y": 56, "w": 14, "h": 9, "stories": 7 },
+    { "name": "Block_36", "map": 2, "x": 73, "y": 56, "w": 14, "h": 9, "stories": 7 },
+    { "name": "Block_37", "map": 2, "x": 90, "y": 56, "w": 14, "h": 9, "stories": 7 },
+    { "name": "Block_38", "map": 2, "x": 107, "y": 56, "w": 14, "h": 9, "stories": 7 },
+    { "name": "Block_39", "map": 2, "x": 124, "y": 56, "w": 14, "h": 9, "stories": 7 },
+    { "name": "Block_40", "map": 2, "x": 1, "y": 66, "w": 14, "h": 17, "stories": 10 },
+    { "name": "Block_41", "map": 2, "x": 18, "y": 66, "w": 11, "h": 17, "stories": 10 },
+    { "name": "Block_42", "map": 2, "x": 31, "y": 66, "w": 14, "h": 17, "stories": 9 },
+    { "name": "Block_43", "map": 2, "x": 48, "y": 66, "w": 14, "h": 17, "stories": 9 },
+    { "name": "Block_44", "map": 2, "x": 65, "y": 66, "w": 6, "h": 17, "stories": 9 },
+    { "name": "Block_45", "map": 2, "x": 73, "y": 66, "w": 14, "h": 17, "stories": 9 },
+    { "name": "Block_46", "map": 2, "x": 90, "y": 66, "w": 14, "h": 17, "stories": 9 },
+    { "name": "Block_47", "map": 2, "x": 107, "y": 66, "w": 14, "h": 17, "stories": 9 },
+    { "name": "Block_48", "map": 2, "x": 124, "y": 66, "w": 14, "h": 17, "stories": 9 }
   ],
   "environments": [
     {

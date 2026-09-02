@@ -61,7 +61,7 @@ func _on_body_entered(body: Node3D) -> void:
 			if not body.try_heal(int(amounts.get("healAmount", 1))):
 				return  # 生命已满，保留拾取物
 		"Ammo":
-			body.add_reserve(int(amounts.get("ammoPickup", 10)))
+			body.add_reserve(int(amounts.get("ammoPickup", 10)), str(amounts.get("ammoPickupType", "9×19mm")))
 		"Armor":
 			if not body.try_add_armor(int(amounts.get("armorPickup", 10))):
 				return  # 防护服能量已满，保留拾取物
@@ -76,7 +76,7 @@ func _on_body_entered(body: Node3D) -> void:
 		"Shotgun":
 			body.grant_weapon("shotgun")
 		"Shells":
-			body.add_reserve(int(amounts.get("shellPickup", 6)))
+			body.add_reserve(int(amounts.get("shellPickup", 6)), str(amounts.get("shellPickupType", "12号霰弹")))
 		"WeaponComp1":
 			if not body.apply_weapon_component(1):
 				return  # 顺序不符（或已满级），保留拾取物

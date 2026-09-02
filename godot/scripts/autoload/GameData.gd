@@ -4,7 +4,8 @@ extends Node
 
 var player_cfg := {}
 var weapons_cfg := []
-var weapons_shared_reserve := 90
+var weapons_shared_reserve := 90  # 兼容回落值(无 ammoReserves 配置时归首武器口径)
+var weapons_ammo_reserves := {}  # {ammoType: 初始备弹} 分口径备弹池初值(9×19mm/12号霰弹)
 var weapon_pickup_spawns := []  # [{weapon, map, x, y}] 场景内武器拾取点
 var shell_spawns := []  # [{map, x, y}] 12号霰弹补给生成点
 var component_levels := []  # [{tier, weapons:{id:{clipSize, damage, auto?}}}] 通用武器升级组件数值表
@@ -16,6 +17,8 @@ var pickups_cfg := {}
 var game_cfg := {}
 var narrative_cfg := {}
 var level_ext_cfg := {}  # P2 地形扩展层（Godot 侧专属配置，不进入 C++ 同源地图）
+# 主菜单「新的行动」注入的起手关(读 level_ext.campaign.startMap); -1=未注入 → Main 回落 campaign.sequence[0]
+var pending_start_map := -1
 
 var pickup_sounds := {}
 var sfx := {}
@@ -36,6 +39,7 @@ func _ready() -> void:
 	var weapons := _load_json(CFG_DIR + "weapons.json")
 	weapons_cfg = weapons.get("weapons", [])
 	weapons_shared_reserve = int(weapons.get("sharedReserve", 90))
+	weapons_ammo_reserves = weapons.get("ammoReserves", {})
 	weapon_pickup_spawns = weapons.get("pickupSpawns", [])
 	shell_spawns = weapons.get("shellSpawns", [])
 	var comps: Dictionary = weapons.get("upgradeComponents", {})

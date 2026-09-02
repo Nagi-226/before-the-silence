@@ -36,7 +36,8 @@ var armor_max := 100
 var armor_cur := 0  # 防护服能量：按 armorAbsorbRate 比例吸收伤害
 var armor_absorb_rate := 0.5  # 减伤比例：能量按 1:1 抵消该比例的伤害
 var coins := 0
-var ammo_reserve := 90
+# 分口径备弹池: key=ammoType("9×19mm"/"12号霰弹")→int。手枪+冲锋枪共用9mm池, 霰弹枪独用12号池
+var ammo_reserves: Dictionary = {}
 # B线·结算战绩口径: 击发次数(霰弹一发=一次)与命中敌人次数(命中率=hits/shots)
 var shots_fired := 0
 var hits_landed := 0
@@ -63,6 +64,11 @@ var clip_size: int:
 	get: return int(weapons[weapon_index]["clipSize"])
 	set(v): weapons[weapon_index]["clipSize"] = v
 
+## 兼容访问器: 当前武器口径的备弹池（HUD/Main/测试沿用旧字段名 ammo_reserve）
+var ammo_reserve: int:
+	get: return int(ammo_reserves.get(weapon_ammo_type(), 0))
+	set(v): ammo_reserves[weapon_ammo_type()] = int(v)
+
 
 func _ready() -> void:
 	add_to_group("player")
@@ -85,7 +91,6 @@ func _ready() -> void:
 
 
 func _build_weapons() -> void:
-	ammo_reserve = GameData.weapons_shared_reserve
 	for i in GameData.weapons_cfg.size():
 		var cd: Dictionary = GameData.weapons_cfg[i]
 		weapons.append({
@@ -109,12 +114,30 @@ func _build_weapons() -> void:
 		weapon_owned.append(bool(cd.get("owned", i == 0)))
 	if weapons.is_empty():  # 配置缺失兜底，保证可运行
 		weapons.append({
-			"id": "pistol", "displayName": "手枪", "auto": false,
+			"id": "pistol", "displayName": "手枪", "ammoType": "9×19mm", "auto": false,
 			"ammoClip": 20, "clipSize": 20, "fireInterval": 0.1, "damage": 32,
 			"bulletSpeed": 30.0, "bulletRange": 20.0, "reloadTime": 2.0,
 			"spawnOffset": 1.0, "viewmodel": "Weapon.png",
 		})
 		weapon_owned.append(true)
+	_init_ammo_reserves()
+
+
+## 按口径初始化备弹池: weapons.json ammoReserves {ammoType: 初值}; 每种武器口径
+## 确保有池(缺省0); 无 ammoReserves 配置时回落 sharedReserve 归首武器口径
+func _init_ammo_reserves() -> void:
+	ammo_reserves.clear()
+	var res_cfg: Dictionary = GameData.weapons_ammo_reserves
+	for t in res_cfg:
+		if str(t).begins_with("_"):
+			continue
+		ammo_reserves[str(t)] = int(res_cfg[t])
+	for w in weapons:
+		var wt := str(w.get("ammoType", ""))
+		if wt != "" and not ammo_reserves.has(wt):
+			ammo_reserves[wt] = 0
+	if res_cfg.is_empty() and not weapons.is_empty():
+		ammo_reserves[str(weapons[0].get("ammoType", ""))] = GameData.weapons_shared_reserve
 
 
 func _physics_process(delta: float) -> void:
@@ -178,7 +201,7 @@ func grant_weapon(id: String) -> bool:
 			continue
 		if weapon_owned[i]:
 			var amounts: Dictionary = GameData.pickups_cfg.get("amounts", {})
-			add_reserve(int(amounts.get("weaponPickupAmmo", 30)))
+			add_reserve(int(amounts.get("weaponPickupAmmo", 30)), str(weapons[i].get("ammoType", "")))
 			return false
 		weapon_owned[i] = true
 		weapons[i]["ammoClip"] = int(weapons[i]["clipSize"])
@@ -327,8 +350,11 @@ func try_add_armor(amount: int) -> bool:
 	return true
 
 
-func add_reserve(amount: int) -> void:
-	ammo_reserve += amount
+## 补充备弹到指定口径池(ammo_type 空则归当前武器口径)。拾取物按符号路由:
+## A弹药箱/重复9mm武器→9×19mm池; s霰弹补给/重复霰弹枪→12号霰弹池
+func add_reserve(amount: int, ammo_type: String = "") -> void:
+	var t := ammo_type if ammo_type != "" else weapon_ammo_type()
+	ammo_reserves[t] = int(ammo_reserves.get(t, 0)) + amount
 	ammo_changed.emit(ammo_clip, ammo_reserve)
 
 

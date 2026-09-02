@@ -35,7 +35,17 @@ func _ready() -> void:
 	process_mode = Node.PROCESS_MODE_ALWAYS
 	view_rect.texture = viewport.get_texture()
 	player.projectile_root = viewport
-	map_index = int(_campaign_sequence()[0])
+	# 起手关: 主菜单经 GameData.pending_start_map 注入(level_ext.campaign.startMap); 未注入(-1)回落 campaign 首关
+	# 消费即复位 → SmokeTest 直挂 Main(绕过主菜单)恒从 sequence[0]=map0 起, 回归不受影响
+	var seq := _campaign_sequence()
+	var start := GameData.pending_start_map
+	GameData.pending_start_map = -1
+	if start < 0 or not seq.has(start):
+		start = int(seq[0])
+		_campaign_cursor = 0
+	else:
+		_campaign_cursor = seq.find(start)  # 对齐游标: 本关通关后正确推进到 sequence 下一关而非循环回本关
+	map_index = start
 	_apply_environment(map_index)  # B批4·T5: per-map 夜空/雾
 	var spawn: Vector3 = level.build(map_index, entities)
 	player.global_position = spawn

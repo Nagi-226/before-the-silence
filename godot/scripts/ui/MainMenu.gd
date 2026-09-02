@@ -95,6 +95,8 @@ func _activate(index: int) -> void:
 	GameData.play_sfx("UISelect")
 	match _actions[index]:
 		"new":
+			# 注入默认起手关(level_ext.campaign.startMap); Main._ready 消费后复位
+			GameData.pending_start_map = int(GameData.level_ext_cfg.get("campaign", {}).get("startMap", -1))
 			get_tree().change_scene_to_file(MAIN_SCENE)
 		"settings":
 			get_tree().change_scene_to_file(SETTINGS_SCENE)

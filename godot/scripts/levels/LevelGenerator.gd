@@ -154,6 +154,7 @@ func build(map_index: int, entity_root: Node3D) -> Vector3:
 	_build_terrain(map_index)
 	_build_stairs(map_index)
 	_build_facade(map_index)
+	_build_city_blocks(map_index)
 	_build_wall_decals(map_index)
 	_spawn_props(map_index)
 	_spawn_weapon_pickups(map_index, entity_root)
@@ -628,6 +629,110 @@ func _build_facade(map_index: int) -> void:
 			p_mi.position = Vector3(
 				face_x - 0.2, base_y + height + 0.25, z_center)
 			root.add_child(p_mi)
+
+
+## B批5 · 密集街区装饰建筑(实心窗格体块): 数组驱动, 每栋独立位置/尺寸/层数/贴图。
+## 与 facade 同约定——不进 buckets(不生成 2.6m 墙盒, 免与高楼体块共面闪烁); 但登记
+## wall_cells(实心 footprint: AI 视线/寻路/小地图视为不可进入体块) + 独立 StaticBody3D
+## 碰撞(整块 footprint×全高, 玩家/敌人无法穿过或跃入)。四面竖窗格带 + 顶板, LevelData 零触碰。
+## 面向 C(完整城市网格)可扩展: 追加 cityBlocks 条目即加密/加高, 渲染器与断言均不改。
+const CITY_WINDOW_BAND_M := 3.9  # Facade Windows(128×85)一个窗格带自然世界宽 ≈ 层高×宽高比
+
+
+func _build_city_blocks(map_index: int) -> void:
+	var blocks: Array = GameData.level_ext_cfg.get("cityBlocks", [])
+	if blocks.is_empty():
+		return
+	var root := Node3D.new()
+	root.name = "CityBlocks"
+	add_child(root)
+	var col_body := StaticBody3D.new()
+	col_body.name = "CityBlockCollision"
+	add_child(col_body)
+	var idx := 0
+	for entry in blocks:
+		var bd: Dictionary = entry
+		if int(bd.get("map", -1)) != map_index:
+			continue
+		var bx := int(bd.get("x", 0))
+		var by := int(bd.get("y", 0))
+		var bw := maxi(1, int(bd.get("w", 1)))
+		var bh := maxi(1, int(bd.get("h", 1)))
+		var stories := maxi(1, int(bd.get("stories", 3)))
+		var story_h := float(bd.get("storyHeight", WorldConst.WALL_HEIGHT))
+		var total_h := story_h * float(stories)
+		var fw := float(bw) * WorldConst.CELL
+		var fd := float(bh) * WorldConst.CELL
+		var cx := (float(bx) + float(bw) * 0.5) * WorldConst.CELL
+		var cz := (float(by) + float(bh) * 0.5) * WorldConst.CELL
+		# 登记实心 footprint 进 wall_cells(AI/小地图不可进入); 不进 buckets(体块自建视觉)
+		var bsym := str(bd.get("symbol", "X"))
+		if not WALL_TEXTURES.has(bsym):
+			bsym = "X"
+		for yy in range(by, by + bh):
+			for xx in range(bx, bx + bw):
+				wall_cells[Vector2i(xx, yy)] = bsym
+		# 碰撞: 整块 footprint × 全高(独立于 WallCollision, 转关随 LevelGenerator 重建)
+		var shape := BoxShape3D.new()
+		shape.size = Vector3(fw, total_h, fd)
+		var col := CollisionShape3D.new()
+		col.shape = shape
+		col.position = Vector3(cx, total_h * 0.5, cz)
+		col_body.add_child(col)
+		_city_block_visual(root, str(bd.get("name", "Block_%d" % idx)), bd,
+			cx, cz, fw, fd, total_h, stories)
+		idx += 1
+
+
+## 实心窗格体块视觉: 四面竖窗格带(法线朝外, 微外推防共面) + 顶板。
+## 窗格带按 (面宽/自然带宽, 层数) 平铺 → 窗格网格随体块尺寸自适应, 保持近方形。
+func _city_block_visual(root: Node3D, bname: String, bd: Dictionary,
+		cx: float, cz: float, fw: float, fd: float, h: float, stories: int) -> void:
+	var win_path := str(bd.get("windowTexture", "res://assets/images/Facade Windows.bmp"))
+	if not ResourceLoader.exists(win_path):
+		win_path = "res://assets/images/Facade Panel.bmp"
+	var wall_path := str(bd.get("wallTexture", "res://assets/images/Facade Panel.bmp"))
+	var win_tex: Texture2D = load(win_path)
+	var node := Node3D.new()
+	node.name = bname
+	node.add_to_group("city_blocks")
+	root.add_child(node)
+	# 四面: [面宽, 位置, 绕Y旋转]; Quad 默认法线 +Z, 转向各面朝外
+	var faces := [
+		[fw, Vector3(cx, h * 0.5, cz - fd * 0.5 - 0.02), PI],         # 北 -Z
+		[fw, Vector3(cx, h * 0.5, cz + fd * 0.5 + 0.02), 0.0],        # 南 +Z
+		[fd, Vector3(cx + fw * 0.5 + 0.02, h * 0.5, cz), PI / 2.0],   # 东 +X
+		[fd, Vector3(cx - fw * 0.5 - 0.02, h * 0.5, cz), -PI / 2.0],  # 西 -X
+	]
+	for f in faces:
+		var face_w: float = f[0]
+		var mat := StandardMaterial3D.new()
+		mat.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
+		mat.texture_filter = BaseMaterial3D.TEXTURE_FILTER_NEAREST
+		mat.albedo_texture = win_tex
+		mat.uv1_scale = Vector3(face_w / CITY_WINDOW_BAND_M, float(stories), 1.0)
+		var q := QuadMesh.new()
+		q.size = Vector2(face_w, h)
+		q.material = mat
+		var mi := MeshInstance3D.new()
+		mi.mesh = q
+		mi.rotation.y = f[2]
+		mi.position = f[1]
+		node.add_child(mi)
+	# 顶板(朝上): 板材贴图, UV 按格平铺
+	if ResourceLoader.exists(wall_path):
+		var roof_mat := StandardMaterial3D.new()
+		roof_mat.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
+		roof_mat.texture_filter = BaseMaterial3D.TEXTURE_FILTER_NEAREST
+		roof_mat.albedo_texture = load(wall_path)
+		roof_mat.uv1_scale = Vector3(fw / WorldConst.CELL, fd / WorldConst.CELL, 1.0)
+		var roof := PlaneMesh.new()
+		roof.size = Vector2(fw, fd)
+		roof.material = roof_mat
+		var rmi := MeshInstance3D.new()
+		rmi.mesh = roof
+		rmi.position = Vector3(cx, h + 0.02, cz)
+		node.add_child(rmi)
 
 
 ## 墙面贴花(布景): 把整面墙替换成专属贴图(如出生点货运大门)。与外立面同约定:

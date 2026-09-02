@@ -1,10 +1,12 @@
 {
   "amounts": {
     "ammoPickup": 10,
+    "ammoPickupType": "9×19mm",
     "healAmount": 25,
     "armorPickup": 10,
     "weaponPickupAmmo": 30,
-    "shellPickup": 6
+    "shellPickup": 6,
+    "shellPickupType": "12号霰弹"
   },
 
   "upgrades": {
