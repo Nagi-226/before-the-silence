@@ -77,7 +77,10 @@ func build(map_index: int, entity_root: Node3D) -> Vector3:
 	# B线: goals 命中且 suppressDataFlag → 抑制符号图 F 旗(改由配置旗接管)
 	var suppress_flag := _goal_suppress_data_flag(map_index)
 	# A批5: pickupOverrides.suppress — 符号图拾取生成跳过配置格(通用数组机制)
+	# A批8: 一批可抑制多格(一层补给减量, 匀往二三层)
 	var pickup_suppress := _pickup_suppress_cells(map_index)
+	# A批7: enemyOverrides.suppress — 符号图敌人减量(一层精英挖减, 捕3层重布)
+	var enemy_suppress := _enemy_suppress_cells(map_index)
 
 	for y in rows.size():
 		var row: String = rows[y]
@@ -102,6 +105,9 @@ func build(map_index: int, entity_root: Node3D) -> Vector3:
 					flag.reached.connect(func(): goal_reached.emit())
 					entity_root.add_child(flag)
 				"0", "1", "2":
+					if not enemy_suppress.is_empty() \
+							and enemy_suppress.has(Vector2i(x, y)):
+						continue
 					var enemy: Node3D = EnemyScene.instantiate()
 					enemy.position = ground
 					enemy.template_id = int(ch)
@@ -155,6 +161,7 @@ func build(map_index: int, entity_root: Node3D) -> Vector3:
 	_spawn_upgrade_components(map_index, entity_root)
 	_spawn_goal_flags(map_index, entity_root)
 	_apply_pickup_overrides(map_index, entity_root)
+	_apply_enemy_overrides(map_index, entity_root)
 	return Vector3(spawn.x, 0.65, spawn.z)
 
 
@@ -255,6 +262,22 @@ func get_stair_marks(floor_level: int) -> Array:
 ## A批6 · 合闸机制: 本图是否配置了配电箱交互点(wallDecals interact=breaker)
 func has_gate() -> bool:
 	return _gate_map
+
+
+## A批8 · 小地图目标标记: 配电箱触发点清单(无闸图返回空数组)。
+## cell=触发格(供测试断言), pos=格中心米坐标(供标记绘制), floor=所属楼层。
+## 供电后仍返回——由调用方按 gate_powered 换色(目标已达成, 标记转暗淡)。
+func get_gate_marks() -> Array:
+	var out: Array = []
+	for entry in _interactables:
+		var d: Dictionary = entry
+		var p: Vector2 = d.get("pos", Vector2.ZERO)
+		out.append({
+			"cell": Vector2i(int(p.x / WorldConst.CELL), int(p.y / WorldConst.CELL)),
+			"pos": p,
+			"floor": int(d.get("floor", 1)),
+		})
+	return out
 
 
 func _map_has_breaker(map_index: int) -> bool:
@@ -389,16 +412,68 @@ func _apply_partitions(map_index: int, buckets: Dictionary) -> void:
 
 
 ## A批5 · pickupOverrides.suppress: 需在符号扫描中跳过的拾取格集(通用, 可多条)
+## A批8: suppress 兼容两种格式——单格字典 {x,y}(A批5 旧口径) 与
+## 数组 [{x,y},...](批量削减, 一层补给匀往二三层)
 func _pickup_suppress_cells(map_index: int) -> Dictionary:
 	var out := {}
 	for entry in GameData.level_ext_cfg.get("pickupOverrides", []):
 		var ed: Dictionary = entry
 		if int(ed.get("map", -1)) != map_index:
 			continue
-		var s: Dictionary = ed.get("suppress", {})
-		if not s.is_empty():
-			out[Vector2i(int(s.get("x", -1)), int(s.get("y", -1)))] = true
+		var s: Variant = ed.get("suppress", {})
+		if s is Array:
+			for it in s:
+				var itd: Dictionary = it
+				out[Vector2i(int(itd.get("x", -1)), int(itd.get("y", -1)))] = true
+		elif s is Dictionary and not (s as Dictionary).is_empty():
+			var sd: Dictionary = s
+			out[Vector2i(int(sd.get("x", -1)), int(sd.get("y", -1)))] = true
 	return out
+
+
+## A批7 · enemyOverrides.suppress: 符号图敌人抑制格集(suppress 为数组,
+## 每条 {x,y} 一格; 一层精英减量——被抑制敌人由 place 捕3层重布)
+func _enemy_suppress_cells(map_index: int) -> Dictionary:
+	var out := {}
+	for entry in GameData.level_ext_cfg.get("enemyOverrides", []):
+		var ed: Dictionary = entry
+		if int(ed.get("map", -1)) != map_index:
+			continue
+		for s in ed.get("suppress", []):
+			var sd: Dictionary = s
+			out[Vector2i(int(sd.get("x", -1)), int(sd.get("y", -1)))] = true
+	return out
+
+
+## A批7 · enemyOverrides.place: 按配置落敌({x,y,id[,floor]}); floor≥2 时
+## 取该层 baseHeight 抬升(敌人原点在脚底, 落层板顶), 缺省 floor=1 地面
+func _apply_enemy_overrides(map_index: int, entity_root: Node3D) -> void:
+	for entry in GameData.level_ext_cfg.get("enemyOverrides", []):
+		var ed: Dictionary = entry
+		if int(ed.get("map", -1)) != map_index:
+			continue
+		for p in ed.get("place", []):
+			var pd: Dictionary = p
+			var floor_n := maxi(1, int(pd.get("floor", 1)))
+			var base_h := 0.0
+			if floor_n >= 2:
+				base_h = _layer_base_height(map_index, floor_n)
+			var enemy: Node3D = EnemyScene.instantiate()
+			enemy.position = _cell_center(int(pd.get("x", 0)), int(pd.get("y", 0))) \
+				+ Vector3(0.0, base_h, 0.0)
+			enemy.template_id = int(pd.get("id", 0))
+			enemy.projectile_root = get_parent()
+			entity_root.add_child(enemy)
+
+
+## A批7 · 取指定图/楼层的层板顶高(baseHeight, 未命中返回 0)
+func _layer_base_height(map_index: int, floor_n: int) -> float:
+	for entry in GameData.level_ext_cfg.get("layers", []):
+		var ed: Dictionary = entry
+		if int(ed.get("map", -1)) == map_index \
+				and int(ed.get("floor", 0)) == floor_n:
+			return float(ed.get("baseHeight", WorldConst.WALL_HEIGHT))
+	return 0.0
 
 
 ## A批5 · pickupOverrides.place: 按配置落拾取(符号直给, 不介入 H→e 平衡计数——
@@ -1146,10 +1221,13 @@ func _make_terrain_body(body_name: String, basis: Basis, center: Vector3,
 	return body
 
 
-## A线批3 · 层叠数据模型落地: 楼板(逐格板, slabHoles 挖洞) + 层墙(grid 逐格,
+## A线批3 · 层叠数据模型落地: 楼板(slabHoles 挖洞) + 层墙(grid 逐格符号,
 ## y 偏移 baseHeight, 沿用墙材质) + 层实体(enemies/pickups 按 baseHeight 抬升)。
-## 层墙登记 _layer_cells 不进一楼 wall_cells; 楼板/层墙碰撞挂 "layers" 组独立
-## body → 一楼不变式(墙碰撞体数==墙格数)原样。无 layers 配置零变化。
+## A批7 · 承载重构: 楼板/层墙渲染改 MultiMesh(每层每符号 1 实例), 碰撞改
+## 行合并宽 BoxShape 挂单层 body(参照一层墙 _build_walls/_build_collision 模式)
+## ——扩面至全图规模时避免逐格 StaticBody 爆节点(~28000 body)。
+## custom_aabb 必须按实际格集计算(视锥剔除坑)。层墙登记 _layer_cells 不进
+## 一楼 wall_cells; 碰撞 body 挂 "layers" 组 → 一楼不变式原样。无 layers 配置零变化。
 const LAYER_SLAB_THICK := 0.3  # 楼板厚度(米), 顶面=baseHeight
 
 
@@ -1176,21 +1254,43 @@ func _build_layers(map_index: int, entity_root: Node3D) -> void:
 			"top": base_h + WorldConst.WALL_HEIGHT,
 		})
 
-		# 楼板: 逐格板(材质共享)
+		# 楼板: MultiMesh 渲染 + 行合并碰撞(单 body 挂 "layers" 组)
 		var slab_mat := _terrain_material(ed)
+		var slab_positions: Array[Vector3] = []
+		var slab_col := StaticBody3D.new()
+		slab_col.name = "Layer_SlabCol_F%d" % floor_n
+		slab_col.add_to_group("layers")
+		add_child(slab_col)
 		for y in range(y0, y0 + rh):
-			for x in range(x0, x0 + rw):
-				if holes.has(Vector2i(x, y)):
-					continue
-				var center := _cell_center(x, y) \
-					+ Vector3(0.0, base_h - LAYER_SLAB_THICK * 0.5, 0.0)
-				_make_terrain_body("Layer_Slab_F%d_%d_%d" % [floor_n, x, y],
-					Basis.IDENTITY, center,
-					Vector3(WorldConst.CELL, LAYER_SLAB_THICK, WorldConst.CELL),
-					slab_mat, "layers")
+			var run_x := -1  # 当前连续板段起点(-1=无)
+			for x in range(x0, x0 + rw + 1):
+				var solid := x < x0 + rw and not holes.has(Vector2i(x, y))
+				if solid:
+					if run_x < 0:
+						run_x = x
+					slab_positions.append(_cell_center(x, y) \
+						+ Vector3(0.0, base_h - LAYER_SLAB_THICK * 0.5, 0.0))
+				if not solid and run_x >= 0:
+					_add_run_collision(slab_col, run_x, x - run_x, y,
+						base_h - LAYER_SLAB_THICK * 0.5, LAYER_SLAB_THICK)
+					run_x = -1
+		if not slab_positions.is_empty():
+			_add_layer_multimesh("Layer_Slabs_F%d" % floor_n, slab_positions,
+				Vector3(WorldConst.CELL, LAYER_SLAB_THICK, WorldConst.CELL), slab_mat)
 
-		# 层墙: grid 逐格(相对 rect 原点; 行=符号 row), 材质按符号缓存
+		# 层墙: grid 逐格符号(相对 rect 原点; 行=符号 row)
+		# 渲染=每符号 1 个 MultiMesh; 碰撞=逐格共享 shape(同一层 body)——
+		# 不可行合并: 楼梯井道恰在墙格接缝上(如 col32 两侧均墙), 旧逐格盒
+		# 接缝法线相消可侧穿, 合并后实墙堵死楼梯(回归实证);
+		# _layer_cells 仍逐格登记(is_wall 分层查询/小地图消费)
 		var wall_mats := {}
+		var wall_positions := {}  # 符号 -> Array[Vector3]
+		var wall_col := StaticBody3D.new()
+		wall_col.name = "Layer_WallCol_F%d" % floor_n
+		wall_col.add_to_group("layers")
+		add_child(wall_col)
+		var wall_shared := BoxShape3D.new()
+		wall_shared.size = Vector3(WorldConst.CELL, WorldConst.WALL_HEIGHT, WorldConst.CELL)
 		var grid: Array = ed.get("grid", [])
 		for gy in grid.size():
 			var row_str := str(grid[gy])
@@ -1203,15 +1303,23 @@ func _build_layers(map_index: int, entity_root: Node3D) -> void:
 					m.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
 					m.albedo_texture = load(WALL_TEXTURES[ch])
 					wall_mats[ch] = m
+				if not wall_positions.has(ch):
+					wall_positions[ch] = [] as Array[Vector3]
 				var cx := x0 + gx
 				var cy := y0 + gy
 				var pos := _cell_center(cx, cy) \
 					+ Vector3(0.0, base_h + WorldConst.WALL_HEIGHT * 0.5, 0.0)
-				_make_terrain_body("Layer_Wall_F%d_%d_%d" % [floor_n, cx, cy],
-					Basis.IDENTITY, pos,
-					Vector3(WorldConst.CELL, WorldConst.WALL_HEIGHT, WorldConst.CELL),
-					wall_mats[ch], "layers")
+				(wall_positions[ch] as Array).append(pos)
 				_layer_cells[floor_n][Vector2i(cx, cy)] = ch
+				var wcol := CollisionShape3D.new()
+				wcol.shape = wall_shared
+				wcol.position = pos
+				wall_col.add_child(wcol)
+		for sym in wall_positions:
+			_add_layer_multimesh("Layer_Walls_F%d_%s" % [floor_n, sym],
+				wall_positions[sym],
+				Vector3(WorldConst.CELL, WorldConst.WALL_HEIGHT, WorldConst.CELL),
+				wall_mats[sym])
 
 		# 层实体: 敌人/拾取物按 baseHeight 抬升(敌人原点在脚底, 落板顶)
 		for e in ed.get("enemies", []):
@@ -1229,6 +1337,46 @@ func _build_layers(map_index: int, entity_root: Node3D) -> void:
 				+ Vector3(0.0, base_h, 0.0)
 			pickup.symbol = str(pd.get("symbol", "A"))
 			entity_root.add_child(pickup)
+
+
+## A批7 · 层几何 MultiMesh 渲染: custom_aabb 按实际实例包围盒计算(防视锥剔除)
+func _add_layer_multimesh(mm_name: String, positions: Array, box_size: Vector3,
+		mat: Material) -> void:
+	if positions.is_empty():
+		return
+	var half := box_size * 0.5
+	var minc: Vector3 = positions[0]
+	var maxc: Vector3 = positions[0]
+	for p in positions:
+		minc = minc.min(p)
+		maxc = maxc.max(p)
+	var box := BoxMesh.new()
+	box.size = box_size
+	var mm := MultiMeshInstance3D.new()
+	mm.name = mm_name
+	mm.multimesh = MultiMesh.new()
+	mm.multimesh.transform_format = MultiMesh.TRANSFORM_3D
+	mm.multimesh.mesh = box
+	mm.multimesh.custom_aabb = AABB(minc - half, maxc - minc + box_size)
+	mm.material_override = mat
+	mm.multimesh.instance_count = positions.size()
+	for i in positions.size():
+		mm.multimesh.set_instance_transform(i, Transform3D(Basis.IDENTITY, positions[i]))
+	add_child(mm)
+
+
+## A批7 · 行合并碰撞: 一行连续 run_len 格合并为一个宽 BoxShape(挂层碰撞 body)
+func _add_run_collision(body: StaticBody3D, run_x0: int, run_len: int, row_y: int,
+		center_y: float, thick: float) -> void:
+	var col := CollisionShape3D.new()
+	var shape := BoxShape3D.new()
+	shape.size = Vector3(float(run_len) * WorldConst.CELL, thick, WorldConst.CELL)
+	col.shape = shape
+	col.position = Vector3(
+		(float(run_x0) + float(run_len) * 0.5) * WorldConst.CELL,
+		center_y,
+		(float(row_y) + 0.5) * WorldConst.CELL)
+	body.add_child(col)
 
 
 func _terrain_material(cfg: Dictionary) -> StandardMaterial3D:

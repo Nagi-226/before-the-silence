@@ -13,7 +13,14 @@ extends Node
 ##       A批5 西北大厅塔楼(迷宫式二三层/楼梯间/卡顶修复/一层隔墙/急救包挪位/BFS连通性)
 ##       A批6 楼梯2朝向修复(dir=N+三层落点开洞)/小地图楼层化(按y切层+楼梯标记) /
 ##       合闸机制(配电箱走进触发/大门贴花切换/撤离闭锁) / 物资重排(W→2F, T+U+s×2→3F,
-##       map0 删 v, 巨宿主镇守) / HUD 目标行(narrative.gate 口径)
+##       map0 删 v, 巨宿主镇守) / HUD 目标行(narrative.gate 口径) /
+##       A批6.1 小地图视觉修订(楼梯间整格琥珀色块/撤离信标闭锁态红环可视化) /
+##       A批7 迷宫扩面(二三层全境 8378/8398 格≈115%≥70%+全连通BFS) /
+##       enemyOverrides 精英重布(1F id2 40→10, 24×3F+6×2F) / 楼层角标 1F/2F/3F /
+##       A批8 补给跨楼层重平衡(1F 383→199 / 2F 27→105 / 3F 28→115, 密度 5.26→2.73
+##       与 0.32→1.25/1.37; h 生命上限升级每层截断 3 防血上限 100→620) /
+##       孢子囊+人类宿主跨层布防(1F id0 28→20 id1 68→36, 2F +38 3F +35) /
+##       小地图目标标记(W/T/u/U/v 五色菱形 + 电闸橙红方块, 跨层半透明区分)
 ## 运行: godot --path godot --headless res://scenes/tests/SmokeTest.tscn
 
 var _frame := 0
@@ -62,27 +69,21 @@ func _test_layers_static() -> void:
 	if l2.is_empty() or l3.is_empty():
 		return
 
-	# 层几何累计全部楼层: 墙格与楼板格均从 grid+slabHoles 推导(不硬编码)
-	var expect_walls := 0
-	var expect_slabs := 0
+	# A批7 · 层几何承载重构: 楼板/层墙渲染改 MultiMesh, 碰撞改行合并宽 shape
+	# 挂单层 body → "layers" 组每层恰 2 个碰撞 body(板+墙), 与配置层数一致
+	var layer_count := 0
 	for l in GameData.level_ext_cfg.get("layers", []):
 		var ld: Dictionary = l
-		if int(ld.get("map", -1)) != 0:
-			continue
-		var lrect: Dictionary = ld.get("rect", {})
-		for row in ld.get("grid", []):
-			for ch in str(row):
-				if "XMSG".contains(ch):
-					expect_walls += 1
-		expect_slabs += int(lrect.get("w", 0)) * int(lrect.get("h", 0)) \
-			- (ld.get("slabHoles", []) as Array).size()
+		if int(ld.get("map", -1)) == 0:
+			layer_count += 1
 	var layers_nodes := get_tree().get_nodes_in_group("layers")
-	_report(layers_nodes.size() == expect_walls + expect_slabs,
-		"层几何: %d 体 (层墙 %d + 楼板 %d, 全楼层与配置一致)"
-		% [layers_nodes.size(), expect_walls, expect_slabs])
+	_report(layers_nodes.size() == layer_count * 2,
+		"层几何碰撞: %d body (每层 板+墙 各 1, 共 %d 层, A批7 行合并承载)"
+		% [layers_nodes.size(), layer_count])
 
-	# 可走格: grid 空格数 − 板洞数。断言基准=设计目标(313/319, 探针BFS自楼梯
-	# 落点全连通实证; A批6 三层 row20 cols30-32 开洞 316→319), 计算本身从配置推导
+	# 可走格: grid 空格数 − 板洞数。A批7 迷宫扩面: rect 扩至全境 (0,0,168,62),
+	# 断言基准=生成器 BFS 实证(自楼梯落点全连通): F2 8378 / F3 8398,
+	# 分母=一层室内全部可走面积 7284(探针实测), 达标 ≥70%(实际 ≈115%)
 	for ld in [l2, l3]:
 		var spaces := 0
 		for row in ld.get("grid", []):
@@ -91,13 +92,13 @@ func _test_layers_static() -> void:
 					spaces += 1
 		var walk := spaces - (ld.get("slabHoles", []) as Array).size()
 		var fn := int(ld.get("floor", 0))
-		var expect_walk := 313 if fn == 2 else 319
-		_report(walk == expect_walk,
-			"%d层可走格: %d (期望 %d = 一层大厅428格的 %.1f%%, ≥70%%)"
-			% [fn, walk, expect_walk, walk / 428.0 * 100.0])
+		var expect_walk := 8378 if fn == 2 else 8398
+		_report(walk == expect_walk and walk >= 5098,
+			"%d层可走格: %d (期望 %d = 一层室内7284格的 %.1f%%, ≥70%%)"
+			% [fn, walk, expect_walk, walk / 7284.0 * 100.0])
 
-	# A批6 · 三层连通性 BFS: 楼梯2 改 N 向后落点=(31,20), 全部可走格自此可达
-	# (二层 BFS 已由 A批5 探针实证 313 全连通, 本批未动二层布局)
+	# A批7 · 三层连通性 BFS: 楼梯2 改 N 向后落点=(31,20), 扩面全境后
+	# 全部可走格(含旧塔楼区块+新迷宫区, 经周界门洞连通)自此可达
 	var holes3 := {}
 	for hh in l3.get("slabHoles", []):
 		var hd: Dictionary = hh
@@ -111,12 +112,12 @@ func _test_layers_static() -> void:
 			var n: Vector2i = cur + d
 			if seen3.has(n) or walls3.has(n) or holes3.has(n):
 				continue
-			if n.x < 1 or n.x > 33 or n.y < 17 or n.y > 30:
+			if n.x < 0 or n.x > 167 or n.y < 0 or n.y > 61:
 				continue
 			seen3[n] = true
 			queue3.append(n)
-	_report(seen3.size() == 319,
-		"三层连通性: (31,20) BFS 可达 %d 格 (期望 319 = 全部可走格, 楼梯2落点全连通)"
+	_report(seen3.size() == 8398,
+		"三层连通性: (31,20) BFS 可达 %d 格 (期望 8398 = 全部可走格, 楼梯2落点全连通)"
 		% seen3.size())
 
 	# 分层墙查询: (1,17) 塔西北角——一楼大厅地板 / 二层墙 / 三层墙
@@ -469,6 +470,8 @@ func _test_minimap_floors() -> void:
 	_report(sm[1].has(Vector2i(31, 24)) and sm[2].has(Vector2i(31, 24))
 		and sm[2].has(Vector2i(31, 21)) and sm[3].has(Vector2i(31, 21)),
 		"楼梯标记: 梯1@(31-32,24-25)→1F/2F, 梯2@(31-32,21-22)→2F/3F")
+	# A批6.1: 撤离闭锁态小地图口径——map0 有闸未通电 → 信标闭锁态(红色空心环)
+	_report(mm.flag_locked(), "小地图闭锁态: map0 有闸未通电 → 撤离信标锁定表现")
 	# 实切换: 模拟玩家脚部 y 在 0/2.6/5.2, MiniMap 当前楼层 1/2/3 且纹理随切。
 	# 在庭院空旷点 (172,33) 进行——Pickup 触发半径 2.0m, 塔楼落位区做 y 切换会
 	# 误收 T/U/s(实证: 帧20 玩家在 (5,27) 上空 5.26m 把 2m 外的霰弹枪 T 吸走了)
@@ -485,7 +488,8 @@ func _test_minimap_floors() -> void:
 			_player.global_position = Vector3(345.0, float(tc[0]), 67.0)
 			await get_tree().process_frame
 			if mm.current_floor() == int(tc[1]) \
-					and mm.get("_wall_tex") == (mm.get("_floor_texes") as Dictionary)[int(tc[1])]:
+					and mm.get("_wall_tex") == (mm.get("_floor_texes") as Dictionary)[int(tc[1])] \
+					and mm.floor_badge() == "%dF" % int(tc[1]):
 				phase_ok = true
 				break
 		if not phase_ok:
@@ -503,7 +507,7 @@ func _test_minimap_floors() -> void:
 			back_ok = true
 			break
 	_report(switch_ok and back_ok,
-		"小地图楼层实切换: y=0.65/2.66/5.26 → 1/2/3F 纹理随切, 复位跟随实际楼层 (fail_at=%d, back=%s)"
+		"小地图楼层实切换: y=0.65/2.66/5.26 → 1/2/3F 纹理随切+角标 1F/2F/3F 随显, 复位跟随实际楼层 (fail_at=%d, back=%s)"
 		% [fail_at, str(back_ok)])
 	_minimap_floor_test_done = true
 
@@ -683,8 +687,23 @@ func _test_campaign_flow() -> void:
 	await get_tree().physics_frame
 	_report(_main.map_index == 2, "转关后进入第二关 map2 (index=%d)" % _main.map_index)
 	_report(_main.state == "briefing", "转关后进入第二关简报态")
-	_report(_level.wall_cells.size() == 444,
-		"map2 灰盒围墙环: %d 格 (期望 444, 140×84 周界)" % _level.wall_cells.size())
+	# 墙格从配置推导(dev2 B批2 口径预对齐): 围界环 + 建筑周界 - 门洞。
+	# 本分支 map2 无 buildings → 退化为围界环 444; 合并 dev2 后自动适配街区布局,
+	# 避免硬编码 444 在合并时变红(存量断言升级为配置驱动, 非松绑)。
+	var m2cfg := {}
+	for mc in GameData.level_ext_cfg.get("maps", []):
+		var mcd: Dictionary = mc
+		if int(mcd.get("map", -1)) == 2:
+			m2cfg = mcd
+	var expect_cells: int = 2 * (int(m2cfg.get("width", 140))
+		+ int(m2cfg.get("height", 84))) - 4
+	for bb in m2cfg.get("buildings", []):
+		var bd: Dictionary = bb
+		expect_cells += 2 * (int(bd.get("w", 0)) + int(bd.get("h", 0))) - 4
+		expect_cells -= maxi(0, int((bd.get("door", {}) as Dictionary).get("w", 0)))
+	_report(_level.wall_cells.size() == expect_cells,
+		"map2 墙格: %d (期望 %d = 围界环 + 建筑周界 - 门洞, 配置推导)"
+		% [_level.wall_cells.size(), expect_cells])
 	_report(_level.get_node_or_null("Ceiling") == null, "map2 室外无天花板 (outdoor)")
 	_report(_player.weapon_tier == tier_before and bool(_player.weapon_owned[1]) == smg_owned,
 		"跨关保留: 武器持有与升级组件等级原样保留 (tier=%d)" % _player.weapon_tier)
@@ -704,8 +723,40 @@ func _test_campaign_flow() -> void:
 	_report(mm2 != null and (mm2.get("_floor_texes") as Dictionary).size() == 1
 		and mm2.current_floor() == 1,
 		"map2 无 layers: 小地图仅 1F 纹理, 当前楼层=1(向后兼容)")
+	# A批7: 无层图不画楼层角标(向后兼容)
+	_report(mm2 != null and mm2.floor_badge() == "",
+		"map2 无 layers: 楼层角标不画(空串, 向后兼容)")
 	_report(not _level.gate_powered and not _level.has_gate(),
 		"转关后合闸状态重置: map2 无闸, gate_powered=false")
+	# A批6.1: map2 无闸 → 小地图信标非闭锁态(绿色实心点, 向后兼容)
+	_report(mm2 != null and not mm2.flag_locked(),
+		"map2 无闸: 小地图信标非闭锁态(绿点, 向后兼容)")
+	# A批8 报备勘正(原注释归因有误): weapons.json 的 upgradeComponents 标 map=1
+	# 属第三关——campaign.sequence=[0,2,1], map1(地下隐匿设施)是终点关, 索引语义
+	# 正确, 并非"与 map_index=2 未对齐"的缺陷; 第二关的 v 由 B批3(dev2) 走
+	# level_ext.maps[map=2].pickups 配置在东北土丘顶。故本断言改配置驱动:
+	# 本分支无 B批2/3 内容 → 期望无 v; 合并 dev2 后自动转为丘顶落位断言
+	# (与本文件"v 归 B批3 落 map2 丘顶"既有口径一致)。
+	var mk2 := {}
+	if mm2 != null:
+		for m2 in mm2.target_marks():
+			var m2d: Dictionary = m2
+			mk2[str(m2d["key"])] = m2d["cell"]
+	var v_cfg := {}
+	for pc in m2cfg.get("pickups", []):
+		var pcd: Dictionary = pc
+		if str(pcd.get("symbol", "")) == "v":
+			v_cfg = pcd
+	if v_cfg.is_empty():
+		_report(not mk2.has("v"),
+			"map2 无 v 配置: 目标标记不含三阶组件(本分支口径, B批3 后自动转丘顶断言)")
+	else:
+		_report(mk2.has("v") and mk2["v"] == Vector2i(int(v_cfg.get("x", -1)),
+				int(v_cfg.get("y", -1))),
+			"map2 三阶组件 v 标记落位: %s (期望配置 (%s,%s) 丘顶)"
+			% [str(mk2.get("v")), str(v_cfg.get("x")), str(v_cfg.get("y"))])
+	_report(not mk2.has("breaker"),
+		"map2 无闸: 目标标记不含电闸(向后兼容)")
 	_campaign_test_done = true
 
 
@@ -797,17 +848,32 @@ func _check_world_built() -> void:
 	_report(pickup_count >= 20, "拾取物数量: %d (期望 >= 20)" % pickup_count)
 	_report(has_weapon_pickup, "冲锋枪拾取物已按配置生成(A批6: 二层 B 房间)")
 	_report(has_shotgun_pickup, "霰弹枪拾取物已按配置生成(A批6: 三层宝库)")
-	# A批6 霰弹重排: 一楼推进线 4 处 + 三层 2 处 = 6(原 8; 逐条报备见提交消息)
-	_report(_count_symbol("s") == 6, "12号霰弹补给: %d 处 (期望 6 = 一楼4 + 三层2)" % _count_symbol("s"))
+	# A批6 霰弹重排: 一楼推进线 4 处 + 三层宝库 2 处
+	# A批8 补给重平衡: 三层新区再撒 3(二层不给 s——霰弹枪 T 在三层, 给 s 无意义)
+	_report(_count_symbol("s") == 9,
+		"12号霰弹补给: %d 处 (期望 9 = 一楼4 + 三层宝库2 + 三层新区3)" % _count_symbol("s"))
 	# A批6: 三阶组件 v 移出第一关(归 B批3 map2 丘顶), map0 仅一/二级
 	_report(has_comp1 and has_comp2 and not has_comp3,
 		"升级组件: map0 仅一/二级(v 已移出第一关)")
 	_report(has_armor, "防护服能量补给已生成（a 符号位改造）")
 	_report(legacy_count == 0, "扩展弹匣/神经加速器已实机移除 (残留=%d)" % legacy_count)
-	# 道具平衡（map0）: a(5)+w(5)+每4个H → e=37；H 保留 82
-	# (A批5 pickupOverrides: 扫描H 108个→27e/81H + 配置放置1H = 82H, 口径不变)
-	_report(_count_symbol("e") == 37, "防护服电池数量: %d (期望 37)" % _count_symbol("e"))
-	_report(_count_symbol("H") == 82, "急救包数量: %d (期望 82)" % _count_symbol("H"))
+	# A批8 补给跨楼层重平衡(用户实机反馈: 一层密度 5.26 个/百格 vs 二三层 0.32,
+	# 差 16 倍): 一层抑制 H×48/C×89/A×52 共 189 格 → 净存 H46 e25 C62 A57 h5 s4
+	# = 199(2.73/百格); 二三层各撒新区补给 → 2F 105(1.25) / 3F 115(1.37)。
+	# e 口径: 一层 a5+w5+H折算15=25 (H 参与折算 60 个: 原109−本批48−A批5的1)
+	# H 口径: 一层 45+1(A批5 place)=46
+	# h(生命上限升级, +20/无次数上限): A批7 在二三层撒 11/10 → 全吃血上限 100→620,
+	# 本批每层截断保留 3
+	_report(_count_symbol("e") == 51,
+		"防护服电池: %d (期望 51 = 1F25+2F13+3F13)" % _count_symbol("e"))
+	_report(_count_symbol("H") == 76,
+		"急救包: %d (期望 76 = 1F46+2F14+3F16)" % _count_symbol("H"))
+	_report(_count_symbol("h") == 11,
+		"生命上限升级: %d (期望 11 = 1F5+2F3+3F3, A批7 过量已截断)" % _count_symbol("h"))
+	_report(_count_symbol("C") == 136,
+		"金币: %d (期望 136 = 1F62+2F36+3F38)" % _count_symbol("C"))
+	_report(_count_symbol("A") == 133,
+		"弹药: %d (期望 133 = 1F57+2F38+3F38)" % _count_symbol("A"))
 	# A批6 · 物资重排层落位核验(帧5, 必须在帧12冲锋枪拾取之前——W 被拾取后即离场):
 	# 符号/坐标/楼层 y/落点为层地板格(非墙非板洞)。注意 Pickup 触发半径 2.0m
 	_report(_count_symbol("v") == 0, "map0 已无三阶组件 v (移出第一关, 归 B批3 落 map2 丘顶)")
@@ -824,9 +890,56 @@ func _check_world_built() -> void:
 				and absf(float(e.global_position.y) - 5.2) < 0.1:
 			guard = true
 	_report(guard, "三层镇守敌在场: 巨型突变体宿主 id=2 @ (9,25) y=5.2")
+	# A批7 · enemyOverrides 精英重分布(帧5, 清场前): 符号图 id2 40只 抑制30保留10;
+	# 重布 24×3F + 6×2F(层板顶抬升 y≈5.2/2.6) → 分层计数 1F=10 / 2F=6 / 3F=25(含镇守1)
+	# A批8 · 孢子囊(id0)/人类寄生体宿主(id1) 跨楼层布防(用户实机反馈: 一层敌人
+	# 密度 1.46 只/百格 vs 二层 0.08/三层 0.30, 扩面 26 倍后敌人没跟上):
+	#   id0 一层抑制 8(28→20), 布防 2F×14 + 3F×16
+	#   id1 一层抑制 32(68→36), 布防 2F×24 + 3F×19(2F 另有层配置哨戒 1 只)
+	#   id2 保持 A批7 口径不动
+	var by_floor := {0: [0, 0, 0], 1: [0, 0, 0], 2: [0, 0, 0]}
+	for e in get_tree().get_nodes_in_group("enemies"):
+		var tid := int(e.template_id)
+		if not by_floor.has(tid):
+			continue
+		var ey := float(e.global_position.y)
+		var fi := 2 if ey > 5.0 else (1 if ey > 2.4 else 0)
+		by_floor[tid][fi] += 1
+	_report(by_floor[2][0] == 10 and by_floor[2][1] == 6 and by_floor[2][2] == 25,
+		"enemyOverrides 精英重布: id2 分层 1F=%d(期望10, 40−30) 2F=%d(期望6) 3F=%d(期望25=重布24+镇守1)"
+		% [by_floor[2][0], by_floor[2][1], by_floor[2][2]])
+	_report(by_floor[0][0] == 20 and by_floor[0][1] == 14 and by_floor[0][2] == 16,
+		"A批8 孢子囊布防: id0 分层 1F=%d(期望20, 28−8) 2F=%d(期望14) 3F=%d(期望16)"
+		% [by_floor[0][0], by_floor[0][1], by_floor[0][2]])
+	_report(by_floor[1][0] == 36 and by_floor[1][1] == 25 and by_floor[1][2] == 19,
+		"A批8 人类宿主布防: id1 分层 1F=%d(期望36, 68−32) 2F=%d(期望25=布防24+哨戒1) 3F=%d(期望19)"
+		% [by_floor[1][0], by_floor[1][1], by_floor[1][2]])
 	_report(get_tree().get_first_node_in_group("player") != null, "玩家节点就绪")
 	var mm: Node = _main.get_node("HUD").get_node_or_null("MiniMap")
 	_report(mm != null and mm.get("_wall_tex") != null, "HUD 小地图已就绪")
+	# A批8 · 小地图目标标记(用户实机反馈: 冲锋枪/霰弹枪/2楼电闸/1-3阶组件
+	# 在图上找不到): 武器与组件画菱形每种一色, 电闸画方块+白心;
+	# v 不在 map0(A批6 移出第一关) → 标记代码通用但本图无对象
+	var marks: Array = mm.target_marks() if mm != null else []
+	var mk := {}
+	for m in marks:
+		var md: Dictionary = m
+		mk[str(md["key"])] = {"floor": int(md["floor"]), "cell": md["cell"]}
+	var got_keys: Array = mk.keys()
+	got_keys.sort()
+	_report(mk.size() == 5 and not mk.has("v"),
+		"小地图目标标记 5 类: %s (期望 W/T/u/U/breaker; v 不在 map0)" % str(got_keys))
+	_report(mk.has("W") and mk["W"]["floor"] == 2 and mk["W"]["cell"] == Vector2i(5, 27),
+		"标记落位: 冲锋枪 W → 2F (5,27) 天蓝菱形")
+	_report(mk.has("T") and mk["T"]["floor"] == 3 and mk["T"]["cell"] == Vector2i(4, 27),
+		"标记落位: 霰弹枪 T → 3F (4,27) 洋红菱形")
+	_report(mk.has("u") and mk["u"]["floor"] == 1 and mk["u"]["cell"] == Vector2i(22, 35),
+		"标记落位: 1阶组件 u → 1F (22,35) 青绿菱形")
+	_report(mk.has("U") and mk["U"]["floor"] == 3 and mk["U"]["cell"] == Vector2i(6, 27),
+		"标记落位: 2阶组件 U → 3F (6,27) 紫菱形")
+	_report(mk.has("breaker") and mk["breaker"]["floor"] == 2
+			and mk["breaker"]["cell"] == Vector2i(15, 18),
+		"标记落位: 2楼电闸 → 2F 触发格 (15,18) 橙红方块+白心")
 
 
 func _key_down(key: int) -> void:
@@ -1659,6 +1772,10 @@ func _verify_death_cleanup() -> void:
 	_player.global_position = Vector3(31.0, 3.25, 37.0)
 	await get_tree().create_timer(0.3, true).timeout
 	_report(_level.gate_powered, "合闸触发: gate_powered=true (走进触发区, 一次性)")
+	# A批6.1: 合闸后小地图闭锁解除(信标恢复绿色实心点)
+	var mm_lock: Node = hud.get_node_or_null("MiniMap")
+	_report(mm_lock != null and not mm_lock.flag_locked(),
+		"小地图闭锁解除: 合闸后撤离信标恢复可用表现")
 	var toast2: Label = hud.get("_toast")
 	_report(toast2 != null and toast2.visible and toast2.text == str(gate_cfg.get("toastPowered", "")),
 		"合闸 toast 在场: %s" % (toast2.text if toast2 else "<missing>"))
