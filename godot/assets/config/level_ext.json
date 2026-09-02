@@ -253,6 +253,345 @@
       "x": 100,
       "y": 38,
       "scale": 0.55
+    },
+    {
+      "_comment": "B批4·T1 map2 城区街道点缀: 主街路灯序列(北 row40/南 row45 错开半间距)+枯树剪影+三座可进入建筑门侧与室内木箱(转运链呼应)+街区/巷区瓦砾。纯布景: Sprite3D billboard, 不建碰撞、不登记 wall_cells → 玩法/寻路/小地图零侵入。落位经 gen_map2_props.py 校验(非墙/门洞/地形/车道/封闭室内/实体占用)。"
+    },
+    {
+      "map": 2,
+      "sprite": "res://assets/sprites/Prop Streetlamp.png",
+      "x": 10,
+      "y": 40,
+      "scale": 0.95
+    },
+    {
+      "map": 2,
+      "sprite": "res://assets/sprites/Prop Streetlamp.png",
+      "x": 32,
+      "y": 40,
+      "scale": 0.95
+    },
+    {
+      "map": 2,
+      "sprite": "res://assets/sprites/Prop Streetlamp.png",
+      "x": 54,
+      "y": 40,
+      "scale": 0.95
+    },
+    {
+      "map": 2,
+      "sprite": "res://assets/sprites/Prop Streetlamp.png",
+      "x": 76,
+      "y": 40,
+      "scale": 0.95
+    },
+    {
+      "map": 2,
+      "sprite": "res://assets/sprites/Prop Streetlamp.png",
+      "x": 98,
+      "y": 40,
+      "scale": 0.95
+    },
+    {
+      "map": 2,
+      "sprite": "res://assets/sprites/Prop Streetlamp.png",
+      "x": 120,
+      "y": 40,
+      "scale": 0.95
+    },
+    {
+      "map": 2,
+      "sprite": "res://assets/sprites/Prop Streetlamp.png",
+      "x": 21,
+      "y": 45,
+      "scale": 0.95
+    },
+    {
+      "map": 2,
+      "sprite": "res://assets/sprites/Prop Streetlamp.png",
+      "x": 43,
+      "y": 45,
+      "scale": 0.95
+    },
+    {
+      "map": 2,
+      "sprite": "res://assets/sprites/Prop Streetlamp.png",
+      "x": 65,
+      "y": 45,
+      "scale": 0.95
+    },
+    {
+      "map": 2,
+      "sprite": "res://assets/sprites/Prop Streetlamp.png",
+      "x": 87,
+      "y": 45,
+      "scale": 0.95
+    },
+    {
+      "map": 2,
+      "sprite": "res://assets/sprites/Prop Streetlamp.png",
+      "x": 109,
+      "y": 45,
+      "scale": 0.95
+    },
+    {
+      "map": 2,
+      "sprite": "res://assets/sprites/Prop Streetlamp.png",
+      "x": 131,
+      "y": 45,
+      "scale": 0.95
+    },
+    {
+      "map": 2,
+      "sprite": "res://assets/sprites/Prop Deadtree.png",
+      "x": 52,
+      "y": 12,
+      "scale": 1.05
+    },
+    {
+      "map": 2,
+      "sprite": "res://assets/sprites/Prop Deadtree.png",
+      "x": 42,
+      "y": 18,
+      "scale": 1.05
+    },
+    {
+      "map": 2,
+      "sprite": "res://assets/sprites/Prop Deadtree.png",
+      "x": 86,
+      "y": 20,
+      "scale": 1.05
+    },
+    {
+      "map": 2,
+      "sprite": "res://assets/sprites/Prop Deadtree.png",
+      "x": 104,
+      "y": 26,
+      "scale": 1.05
+    },
+    {
+      "map": 2,
+      "sprite": "res://assets/sprites/Prop Deadtree.png",
+      "x": 6,
+      "y": 66,
+      "scale": 1.05
+    },
+    {
+      "map": 2,
+      "sprite": "res://assets/sprites/Prop Deadtree.png",
+      "x": 36,
+      "y": 76,
+      "scale": 1.05
+    },
+    {
+      "map": 2,
+      "sprite": "res://assets/sprites/Prop Deadtree.png",
+      "x": 90,
+      "y": 78,
+      "scale": 1.05
+    },
+    {
+      "map": 2,
+      "sprite": "res://assets/sprites/Prop Deadtree.png",
+      "x": 120,
+      "y": 60,
+      "scale": 1.05
+    },
+    {
+      "map": 2,
+      "sprite": "res://assets/sprites/Prop Crate.png",
+      "x": 15,
+      "y": 26,
+      "scale": 0.55
+    },
+    {
+      "map": 2,
+      "sprite": "res://assets/sprites/Prop Crate.png",
+      "x": 18,
+      "y": 26,
+      "scale": 0.55
+    },
+    {
+      "map": 2,
+      "sprite": "res://assets/sprites/Prop Crate.png",
+      "x": 72,
+      "y": 20,
+      "scale": 0.55
+    },
+    {
+      "map": 2,
+      "sprite": "res://assets/sprites/Prop Crate.png",
+      "x": 75,
+      "y": 20,
+      "scale": 0.55
+    },
+    {
+      "map": 2,
+      "sprite": "res://assets/sprites/Prop Crate.png",
+      "x": 117,
+      "y": 32,
+      "scale": 0.55
+    },
+    {
+      "map": 2,
+      "sprite": "res://assets/sprites/Prop Crate.png",
+      "x": 120,
+      "y": 32,
+      "scale": 0.55
+    },
+    {
+      "map": 2,
+      "sprite": "res://assets/sprites/Prop Crate.png",
+      "x": 8,
+      "y": 46,
+      "scale": 0.55
+    },
+    {
+      "map": 2,
+      "sprite": "res://assets/sprites/Prop Crate.png",
+      "x": 26,
+      "y": 46,
+      "scale": 0.55
+    },
+    {
+      "map": 2,
+      "sprite": "res://assets/sprites/Prop Crate.png",
+      "x": 11,
+      "y": 13,
+      "scale": 0.55
+    },
+    {
+      "map": 2,
+      "sprite": "res://assets/sprites/Prop Crate.png",
+      "x": 19,
+      "y": 12,
+      "scale": 0.55
+    },
+    {
+      "map": 2,
+      "sprite": "res://assets/sprites/Prop Crate.png",
+      "x": 21,
+      "y": 20,
+      "scale": 0.55
+    },
+    {
+      "map": 2,
+      "sprite": "res://assets/sprites/Prop Crate.png",
+      "x": 71,
+      "y": 15,
+      "scale": 0.55
+    },
+    {
+      "map": 2,
+      "sprite": "res://assets/sprites/Prop Crate.png",
+      "x": 114,
+      "y": 17,
+      "scale": 0.55
+    },
+    {
+      "map": 2,
+      "sprite": "res://assets/sprites/Prop Crate.png",
+      "x": 121,
+      "y": 23,
+      "scale": 0.55
+    },
+    {
+      "map": 2,
+      "sprite": "res://assets/sprites/Prop Rubble.png",
+      "x": 30,
+      "y": 30,
+      "scale": 0.5
+    },
+    {
+      "map": 2,
+      "sprite": "res://assets/sprites/Prop Rubble.png",
+      "x": 48,
+      "y": 28,
+      "scale": 0.5
+    },
+    {
+      "map": 2,
+      "sprite": "res://assets/sprites/Prop Rubble.png",
+      "x": 66,
+      "y": 30,
+      "scale": 0.5
+    },
+    {
+      "map": 2,
+      "sprite": "res://assets/sprites/Prop Rubble.png",
+      "x": 88,
+      "y": 28,
+      "scale": 0.5
+    },
+    {
+      "map": 2,
+      "sprite": "res://assets/sprites/Prop Rubble.png",
+      "x": 108,
+      "y": 36,
+      "scale": 0.5
+    },
+    {
+      "map": 2,
+      "sprite": "res://assets/sprites/Prop Rubble.png",
+      "x": 122,
+      "y": 36,
+      "scale": 0.5
+    },
+    {
+      "map": 2,
+      "sprite": "res://assets/sprites/Prop Rubble.png",
+      "x": 16,
+      "y": 48,
+      "scale": 0.5
+    },
+    {
+      "map": 2,
+      "sprite": "res://assets/sprites/Prop Rubble.png",
+      "x": 48,
+      "y": 50,
+      "scale": 0.5
+    },
+    {
+      "map": 2,
+      "sprite": "res://assets/sprites/Prop Rubble.png",
+      "x": 64,
+      "y": 60,
+      "scale": 0.5
+    },
+    {
+      "map": 2,
+      "sprite": "res://assets/sprites/Prop Rubble.png",
+      "x": 78,
+      "y": 52,
+      "scale": 0.5
+    },
+    {
+      "map": 2,
+      "sprite": "res://assets/sprites/Prop Rubble.png",
+      "x": 106,
+      "y": 48,
+      "scale": 0.5
+    },
+    {
+      "map": 2,
+      "sprite": "res://assets/sprites/Prop Rubble.png",
+      "x": 112,
+      "y": 70,
+      "scale": 0.5
+    },
+    {
+      "map": 2,
+      "sprite": "res://assets/sprites/Prop Rubble.png",
+      "x": 126,
+      "y": 52,
+      "scale": 0.5
+    },
+    {
+      "map": 2,
+      "sprite": "res://assets/sprites/Prop Rubble.png",
+      "x": 134,
+      "y": 66,
+      "scale": 0.5
     }
   ],
   "terrain": [
@@ -4062,9 +4401,41 @@
       ]
     }
   ],
+  "environments": [
+    {
+      "_comment": "B批4·T5 环境差异化: 按 map 覆盖 Main.tscn 出厂夜空/雾参数。未在此配置的关卡(如 map0 仓库区)沿用出厂值——Main._apply_environment 首次抓取场景原值作回落基准, 免与 Main.tscn 双份维护; 每次转关无条件重设, 防上一关氛围残留。map2 城区街道取城郊凌晨调性: 夜空去蓝提灰(天将亮未亮, B/R 比 1.77 vs map0 的 2.9)、地平线留一层冷灰天光、雾密度 0.0075(介于旧室内走廊 0.012 与庭院夜空 0.0045 之间), 湿冷街面能见度收敛但不糊掉 280m 纵深(200m 处透射率 0.22, 东北土丘在雾中仅余轮廓——导航由小地图 v/信标标记兜底)。",
+      "map": 2,
+      "skyTop": [
+        0.035,
+        0.045,
+        0.062
+      ],
+      "skyHorizon": [
+        0.105,
+        0.122,
+        0.145
+      ],
+      "groundBottom": [
+        0.022,
+        0.028,
+        0.038
+      ],
+      "groundHorizon": [
+        0.088,
+        0.102,
+        0.122
+      ],
+      "fogColor": [
+        0.115,
+        0.132,
+        0.152
+      ],
+      "fogDensity": 0.0075
+    }
+  ],
   "miniMapFollow": true,
   "followView": {
     "w": 96,
     "h": 54
   }
-}
+}

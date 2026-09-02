@@ -836,6 +836,52 @@ func _test_campaign_flow() -> void:
 			str(mk2_floor.get("v"))])
 	_report(not mk2.has("breaker"),
 		"map2 无闸: 目标标记不含电闸(向后兼容)")
+	# B批4·T5 环境差异化: 转关后 map2 夜空/雾按 level_ext.environments[map=2] 生效
+	# (Main._apply_environment 每次转关无条件重设, 防上一关氛围残留; 固定子树不被清场)
+	var env_cfg := {}
+	for ec in GameData.level_ext_cfg.get("environments", []):
+		var ecd: Dictionary = ec
+		if int(ecd.get("map", -1)) == 2:
+			env_cfg = ecd
+	var env_node: WorldEnvironment = _main.get_node_or_null("Viewport/WorldEnvironment")
+	var env: Environment = env_node.environment if env_node != null else null
+	var sky_mat: ProceduralSkyMaterial = null
+	if env != null and env.sky != null:
+		sky_mat = env.sky.sky_material as ProceduralSkyMaterial
+	var top_cfg: Array = env_cfg.get("skyTop", [])
+	var fog_ok := env != null \
+		and absf(env.fog_density - float(env_cfg.get("fogDensity", -1.0))) < 0.0001
+	var sky_ok := sky_mat != null and top_cfg.size() >= 3 \
+		and absf(sky_mat.sky_top_color.r - float(top_cfg[0])) < 0.01 \
+		and absf(sky_mat.sky_top_color.g - float(top_cfg[1])) < 0.01 \
+		and absf(sky_mat.sky_top_color.b - float(top_cfg[2])) < 0.01
+	_report(not env_cfg.is_empty() and fog_ok and sky_ok,
+		"B批4·T5 map2 环境按图生效: 雾密度 %.4f (期望 %.4f) / 夜空顶色 %s (期望 %s)" \
+		% [env.fog_density if env != null else -1.0,
+			float(env_cfg.get("fogDensity", -1.0)),
+			str(sky_mat.sky_top_color if sky_mat != null else null), str(top_cfg)])
+	# B批4·T1 道具点缀: 转关后 map2 布景道具数与配置一致(南侧装饰带/街面瓦砾/路灯等)
+	var expect_props2 := 0
+	for p in GameData.level_ext_cfg.get("props", []):
+		if int((p as Dictionary).get("map", -1)) == 2:
+			expect_props2 += 1
+	var props2 := get_tree().get_nodes_in_group("props")
+	_report(props2.size() == expect_props2 and expect_props2 > 0,
+		"B批4·T1 map2 布景道具: %d 个 (期望 %d, 与配置一致)" \
+		% [props2.size(), expect_props2])
+	# B批4·文案终稿: narrative.area_hints 覆盖 map2 关键地标(m8d 修主街中段错位 + 补便利店)
+	var hint_text2 := ""
+	var hint_count2 := 0
+	for h in GameData.narrative_cfg.get("area_hints", []):
+		var hd: Dictionary = h
+		if int(hd.get("map", -1)) == 2:
+			hint_count2 += 1
+			hint_text2 += str(hd.get("text", ""))
+	_report(hint_count2 == 6 and hint_text2.contains("转运站") \
+			and hint_text2.contains("派出所") and hint_text2.contains("便利店") \
+			and hint_text2.contains("土丘"),
+		"B批4·文案 map2 区域提示 %d 条 (期望 6), 覆盖转运站/派出所/便利店/土丘地标" \
+		% hint_count2)
 	_campaign_test_done = true
 
 

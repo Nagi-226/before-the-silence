@@ -27,6 +27,8 @@ var _enemy_names: Array = []
 # B线·转关: campaign 游标与每关统计快照(结算显示本关增量)
 var _campaign_cursor := 0
 var _level_start := {"kills": 0, "pickups": 0, "shots": 0, "hits": 0}
+# B批4·T5: Main.tscn 出厂环境快照(首次应用时抓取), 作无配置关卡的回落基准
+var _env_base := {}
 
 
 func _ready() -> void:
@@ -34,6 +36,7 @@ func _ready() -> void:
 	view_rect.texture = viewport.get_texture()
 	player.projectile_root = viewport
 	map_index = int(_campaign_sequence()[0])
+	_apply_environment(map_index)  # B批4·T5: per-map 夜空/雾
 	var spawn: Vector3 = level.build(map_index, entities)
 	player.global_position = spawn
 	hud.setup_minimap(level, player, entities)
@@ -58,6 +61,52 @@ func _campaign_sequence() -> Array:
 	if d.is_empty():
 		return [0]
 	return d.get("sequence", [0])
+
+
+## B批4·T5 环境差异化: 按 map 应用 level_ext.environments 的夜空/雾参数。
+## 未命中当前关 → 回落 Main.tscn 出厂值(首次调用时快照, 免与场景文件双份维护)。
+## 直接改常驻 Environment/Sky 资源: 转关清场只清 Area3D, WorldEnvironment 不在
+## 其列 → 每关无条件重设(含回落), 否则上一关的氛围会残留到下一关。
+func _apply_environment(idx: int) -> void:
+	var node: WorldEnvironment = viewport.get_node_or_null("WorldEnvironment")
+	if node == null or node.environment == null:
+		return
+	var env := node.environment
+	var sky_mat: ProceduralSkyMaterial = null
+	if env.sky != null:
+		sky_mat = env.sky.sky_material as ProceduralSkyMaterial
+	if _env_base.is_empty():
+		_env_base = {"fogDensity": env.fog_density, "fogColor": env.fog_light_color}
+		if sky_mat != null:
+			_env_base["skyTop"] = sky_mat.sky_top_color
+			_env_base["skyHorizon"] = sky_mat.sky_horizon_color
+			_env_base["groundBottom"] = sky_mat.ground_bottom_color
+			_env_base["groundHorizon"] = sky_mat.ground_horizon_color
+	var cfg := {}
+	for e in GameData.level_ext_cfg.get("environments", []):
+		var ed: Dictionary = e
+		if int(ed.get("map", -1)) == idx:
+			cfg = ed
+	env.fog_enabled = true
+	env.fog_density = float(cfg.get("fogDensity", _env_base["fogDensity"]))
+	env.fog_light_color = _env_color(cfg.get("fogColor"), _env_base["fogColor"])
+	if sky_mat == null:
+		return
+	sky_mat.sky_top_color = _env_color(cfg.get("skyTop"), _env_base["skyTop"])
+	sky_mat.sky_horizon_color = _env_color(
+		cfg.get("skyHorizon"), _env_base["skyHorizon"])
+	sky_mat.ground_bottom_color = _env_color(
+		cfg.get("groundBottom"), _env_base["groundBottom"])
+	sky_mat.ground_horizon_color = _env_color(
+		cfg.get("groundHorizon"), _env_base["groundHorizon"])
+
+
+## [r, g, b] 数组 → Color; 缺省或畸形(非数组/不足 3 项)则原样回退 fallback
+func _env_color(v: Variant, fallback: Color) -> Color:
+	if typeof(v) != TYPE_ARRAY or (v as Array).size() < 3:
+		return fallback
+	var a: Array = v
+	return Color(float(a[0]), float(a[1]), float(a[2]))
 
 
 func _connect_player() -> void:
@@ -313,6 +362,7 @@ func _advance_level() -> void:
 	await get_tree().physics_frame
 
 	map_index = int(seq[_campaign_cursor])
+	_apply_environment(map_index)  # B批4·T5: 每关重设, 防上一关氛围残留
 	var spawn: Vector3 = level.build(map_index, entities)
 	player.global_position = spawn
 	player.velocity = Vector3.ZERO
