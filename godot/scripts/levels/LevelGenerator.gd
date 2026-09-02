@@ -636,7 +636,11 @@ func _build_facade(map_index: int) -> void:
 ## wall_cells(实心 footprint: AI 视线/寻路/小地图视为不可进入体块) + 独立 StaticBody3D
 ## 碰撞(整块 footprint×全高, 玩家/敌人无法穿过或跃入)。四面竖窗格带 + 顶板, LevelData 零触碰。
 ## 面向 C(完整城市网格)可扩展: 追加 cityBlocks 条目即加密/加高, 渲染器与断言均不改。
-const CITY_WINDOW_BAND_M := 3.9  # Facade Windows(128×85)一个窗格带自然世界宽 ≈ 层高×宽高比
+# 窗格带尺度对齐 map0 facade(用户认可的「刚好两层」参照): 一条 Facade Windows(128×85,
+# 含约3窗行)贴图带 = 2 层体量。带高 2×2.6=5.2m → 每窗行≈1.7m 近人体高(修复此前
+# 1带=1层致窗行仅0.87m、3~4窗行才及人高的失衡)。带宽按贴图宽高比 128/85 保窗格近方形。
+const CITY_WINDOW_BAND_M := 7.8            # 一条窗格带世界宽(2层体量, ≈5.2m×128/85)
+const CITY_WINDOW_STORIES_PER_BAND := 2.0  # 一条窗格带覆盖层数(与 facade 同: 2层/带)
 
 
 func _build_city_blocks(map_index: int) -> void:
@@ -710,7 +714,8 @@ func _city_block_visual(root: Node3D, bname: String, bd: Dictionary,
 		mat.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
 		mat.texture_filter = BaseMaterial3D.TEXTURE_FILTER_NEAREST
 		mat.albedo_texture = win_tex
-		mat.uv1_scale = Vector3(face_w / CITY_WINDOW_BAND_M, float(stories), 1.0)
+		mat.uv1_scale = Vector3(face_w / CITY_WINDOW_BAND_M,
+			float(stories) / CITY_WINDOW_STORIES_PER_BAND, 1.0)
 		var q := QuadMesh.new()
 		q.size = Vector2(face_w, h)
 		q.material = mat
